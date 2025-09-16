@@ -1,0 +1,64 @@
+name: Playit RDP Tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-rdp-tunnel:
+    runs-on: windows-2025
+
+    steps:
+    - name: Check out the repository
+      uses: actions/checkout@v2
+
+    - name: Download and Install Playit
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        Start-Sleep -Seconds 5  # Give some time for the download to complete
+
+        
+    # Default, optional.
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "MinEncryptionLevel" -Value 3
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+
+    - name: Optimize Server for RDP
+      run: |
+        # Disable unnecessary services for better performance
+        Set-Service -Name 'WSearch' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'WSearch' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'SysMain' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'SysMain' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'DiagTrack' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'DiagTrack' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'dmwappushservice' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'dmwappushservice' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'RetailDemo' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'RetailDemo' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'Fax' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'Fax' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'wuauserv' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'wuauserv' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'BITS' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'BITS' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'Spooler' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'Spooler' -Force -ErrorAction SilentlyContinue
+        # Disable visual effects to reduce graphical load
+        Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+        # Optimize network settings for RDP
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'MaxUserPort' -Value 65534
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpTimedWaitDelay' -Value 30
+        # Reduce CPU usage by adjusting process priority and disabling background tasks
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' -Name 'Win32PrioritySeparation' -Value 0x26
+        # Disable Windows Defender real-time protection to reduce CPU load (optional, based on security needs)
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+        # Set power plan to High Performance
+        powercfg /setactive SCHEME_MIN
+
+    - name: Start Playit and Set Up RDP Tunnel
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
+      run: |
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+
+        
+    # Prevent workflow to stop
+    - name: Keep the GitHub Action Runner Alive
+      run: |
+        Start-Sleep -Seconds 21600  # Increased to 6 hours for public repo with no minute limit
