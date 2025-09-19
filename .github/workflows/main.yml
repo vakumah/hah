@@ -8,10 +8,10 @@ jobs:
     runs-on: windows-2025
 
     steps:
-    - name: Check out the repository
+    - name: Checkout Repository
       uses: actions/checkout@v2
 
-    - name: Download and Install Playit
+    - name: Download & Install Playit
       run: |
         Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
         Start-Sleep -Seconds 5
@@ -21,46 +21,39 @@ jobs:
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MinEncryptionLevel" -Value 1
-        # Force 16-bit RDP color (lighter than 32-bit)
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "ColorDepth" -Value 3
-        # Set login user & password
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MinEncryptionLevel" -Value 3
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-    - name: Optimize Windows for RDP Performance
+    - name: Optimize Windows for RDP
       run: |
-        # Disable heavy services
+        # Disable services that eat resources
         $services = "WSearch","SysMain","DiagTrack","dmwappushservice","RetailDemo","Fax","wuauserv","BITS","Spooler"
         foreach ($svc in $services) {
           Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
           Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
         }
-
-        # Disable Windows Defender realtime (optional)
-        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
-
-        # Visual effects off (best performance)
-        reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f
-        reg add "HKCU\Control Panel\Desktop" /v UserPreferencesMask /t REG_BINARY /d 9012038010000000 /f
-
-        # RDP optimization registry
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server" /v fEnableCompression /t REG_DWORD /d 1 /f
-        reg add "HKLM\SYSTEM\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" /v LanAdapter /t REG_DWORD /d 0 /f
-        reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TcpAckFrequency /t REG_DWORD /d 1 /f
-        reg add "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters" /v TCPNoDelay /t REG_DWORD /d 1 /f
-
-        # Power plan high performance
+        # Visual effects -> performance
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+        # Network tweaks
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'MaxUserPort' -Value 65534
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpTimedWaitDelay' -Value 30
+        # Power mode High Performance
         powercfg /setactive SCHEME_MIN
+        # Check RDP service
+        Start-Service TermService
+        Set-Service TermService -StartupType Automatic
 
-    - name: Start Playit (RDP Tunnel)
+    - name: Start Playit Tunnel (Background)
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
         Start-Sleep -Seconds 10
-        Write-Output "✅ RDP Ready!"
-        Write-Output "User: runneradmin"
-        Write-Output "Pass: p@ssw0rd!"
+        Get-Process playit
 
-    - name: Keep Alive
-      run: Start-Sleep -Seconds 21600
+    - name: Keep GitHub Runner Alive
+      run: |
+        Write-Output "RDP + Playit is running... Keep Alive enabled."
+        while ($true) {
+          Start-Sleep -Seconds 300
+        }
