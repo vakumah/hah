@@ -1,11 +1,11 @@
-name: Playit RDP Tunnel Linux
+name: Playit RDP Tunnel
 
 on:
   workflow_dispatch:
 
 jobs:
   setup-rdp-tunnel:
-    runs-on: ubuntu-latest
+    runs-on: windows-2025
 
     steps:
     - name: Check out the repository
@@ -13,130 +13,52 @@ jobs:
 
     - name: Download and Install Playit
       run: |
-        wget https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-linux-amd64
-        chmod +x playit-linux-amd64
-        sudo mv playit-linux-amd64 /usr/local/bin/playit
-        sleep 5
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        Start-Sleep -Seconds 5  # Give some time for the download to complete
 
-    - name: Install and Configure xRDP with Performance Optimizations
-      run: |
-        sudo apt update
-        # Install XFCE4 - better window management than LXDE
-        sudo DEBIAN_FRONTEND=noninteractive apt install -y xrdp xfce4 xfce4-terminal thunar
         
-        # Configure xrdp for maximum performance
-        sudo systemctl enable xrdp
-        
-        # Set XFCE4 session with proper window manager
-        echo "xfce4-session" > ~/.xsession
-        
-        # Configure xrdp.ini for performance
-        sudo sed -i 's/max_bpp=32/max_bpp=24/' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/#tcp_nodelay=1/tcp_nodelay=1/' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/#tcp_keepalive=1/tcp_keepalive=1/' /etc/xrdp/xrdp.ini
-        sudo sed -i 's/crypt_level=high/crypt_level=low/' /etc/xrdp/xrdp.ini
-        
-        # Add xrdp user to ssl-cert group
-        sudo adduser xrdp ssl-cert
-        
-        # Start xrdp service
-        sudo systemctl start xrdp
-        
-        # Check if service is running
-        sudo systemctl status xrdp --no-pager
-        
-    - name: Set User Password
-      run: |
-        echo 'runner:p@ssw0rd!' | sudo chpasswd
-        sudo usermod -aG sudo runner
+    # Default, optional.
+    - name: Enable TS
+      run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server'-name "fDenyTSConnections" -Value 0
+    - run: Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 1
+    - run: Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "MinEncryptionLevel" -Value 3
+    - run: Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-    - name: Advanced Performance Optimization
+    - name: Optimize Server for RDP
       run: |
-        # Disable heavy services and background processes
-        sudo systemctl disable snapd.service snapd.socket snapd.seeded.service || true
-        sudo systemctl stop snapd.service snapd.socket snapd.seeded.service || true
-        sudo systemctl disable unattended-upgrades || true
-        sudo systemctl stop unattended-upgrades || true
-        sudo systemctl disable ModemManager || true
-        sudo systemctl stop ModemManager || true
-        
-        # Set CPU governor to performance mode
-        echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor || true
-        
-        # Basic network optimizations
-        echo 'net.ipv4.tcp_window_scaling = 1' | sudo tee -a /etc/sysctl.conf
-        echo 'net.ipv4.tcp_timestamps = 1' | sudo tee -a /etc/sysctl.conf
-        echo 'vm.swappiness = 10' | sudo tee -a /etc/sysctl.conf
-        sudo sysctl -p || true
-        
-        # Configure XFCE4 for better performance
-        mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml
-        
-        # Disable compositor for better performance
-        cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfwm4.xml << 'EOF'
-        <?xml version="1.0" encoding="UTF-8"?>
-        <channel name="xfwm4" version="1.0">
-          <property name="general" type="empty">
-            <property name="use_compositing" type="bool" value="false"/>
-            <property name="show_frame_shadow" type="bool" value="false"/>
-            <property name="show_popup_shadow" type="bool" value="false"/>
-            <property name="snap_to_border" type="bool" value="true"/>
-            <property name="snap_to_windows" type="bool" value="true"/>
-            <property name="snap_width" type="int" value="10"/>
-            <property name="theme" type="string" value="Default"/>
-            <property name="title_font" type="string" value="Sans Bold 9"/>
-            <property name="double_click_action" type="string" value="maximize"/>
-            <property name="easy_click" type="string" value="Alt"/>
-            <property name="focus_mode" type="string" value="click"/>
-            <property name="placement_mode" type="string" value="center"/>
-            <property name="raise_delay" type="int" value="250"/>
-            <property name="resize_opacity" type="int" value="100"/>
-            <property name="move_opacity" type="int" value="100"/>
-            <property name="show_dock_shadow" type="bool" value="false"/>
-            <property name="workspace_count" type="int" value="1"/>
-          </property>
-        </channel>
-        EOF
-        
-        # Configure desktop for performance
-        cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'EOF'
-        <?xml version="1.0" encoding="UTF-8"?>
-        <channel name="xfce4-desktop" version="1.0">
-          <property name="desktop-icons" type="empty">
-            <property name="style" type="int" value="0"/>
-            <property name="file-icons" type="empty">
-              <property name="show-thumbnails" type="bool" value="false"/>
-            </property>
-          </property>
-          <property name="backdrop" type="empty">
-            <property name="screen0" type="empty">
-              <property name="monitor0" type="empty">
-                <property name="color-style" type="int" value="0"/>
-                <property name="image-style" type="int" value="0"/>
-              </property>
-            </property>
-          </property>
-        </channel>
-        EOF
-        
-        # Configure firewall
-        sudo ufw allow 3389/tcp || true
+        # Disable unnecessary services for better performance
+        Set-Service -Name 'WSearch' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'WSearch' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'SysMain' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'SysMain' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'DiagTrack' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'DiagTrack' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'dmwappushservice' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'dmwappushservice' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'RetailDemo' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'RetailDemo' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'Fax' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'Fax' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'wuauserv' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'wuauserv' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'BITS' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'BITS' -Force -ErrorAction SilentlyContinue
+        Set-Service -Name 'Spooler' -StartupType Disabled -ErrorAction SilentlyContinue; Stop-Service -Name 'Spooler' -Force -ErrorAction SilentlyContinue
+        # Disable visual effects to reduce graphical load
+        Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+        # Optimize network settings for RDP
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'MaxUserPort' -Value 65534
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpTimedWaitDelay' -Value 30
+        # Reduce CPU usage by adjusting process priority and disabling background tasks
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' -Name 'Win32PrioritySeparation' -Value 0x26
+        # Disable Windows Defender real-time protection to reduce CPU load (optional, based on security needs)
+        Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction SilentlyContinue
+        # Set power plan to High Performance
+        powercfg /setactive SCHEME_MIN
 
     - name: Start Playit and Set Up RDP Tunnel
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }} 
       run: |
-        playit --secret $PLAYIT_AUTH_KEY &
-        sleep 10
-        
-        # Show connection info
-        echo "RDP is ready on port 3389"
-        echo "Username: runner"
-        echo "Password: p@ssw0rd!"
-        echo "Desktop Environment: XFCE4 (Full Window Controls & Performance Optimized)"
-        echo "Optimizations: Low color depth, fast compression, minimal UI"
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -NoNewWindow -Wait
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -NoNewWindow
+
         
     # Prevent workflow to stop
     - name: Keep the GitHub Action Runner Alive
       run: |
-        sleep 21600  # Increased to 6 hours for public repo with no minute limit
+        Start-Sleep -Seconds 21600  # Increased to 6 hours for public repo with no minute limit
