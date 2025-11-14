@@ -1,107 +1,94 @@
-name: macOS GUI 24/7 + noVNC + ngrok (URL PASTI MUNCUL!)
-
+name: Localtunnel VNC Tunnel (macOS - 100% Free)
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '*/350 * * * *'  # Auto-restart tiap 5 jam 50 menit
 
 jobs:
-  gui:
-    runs-on: macos-14
-    timeout-minutes: 360
-
+  setup-vnc-tunnel:
+    runs-on: macos-14  # atau macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v2
 
-      # 1. Install Dependencies
-      - name: Install Dependencies
-        run: |
-          brew install node
-          git clone https://github.com/novnc/noVNC.git
+    - name: Install Node.js & Localtunnel
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+      run: |
+        npm install -g localtunnel
 
-      # 2. Setup noVNC Auto-Connect
-      - name: Setup noVNC
-        run: |
-          cd noVNC
-          cp vnc.html index.html
-          cat > index.html << 'EOF'
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>macOS GUI</title>
-            <meta http-equiv="refresh" content="0; url=vnc.html?host=localhost&port=5901&autoconnect=true&password=gui12345">
-          </head>
-          <body><p>Connecting...</p></body>
-          </html>
-          EOF
+    - name: Enable Screen Sharing (VNC)
+      run: |
+        sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+          -activate -configure -access -on \
+          -users admin -privs -all -restart -agent -menu
+        echo "Screen Sharing (VNC) enabled on port 5900"
 
-      # 3. Enable VNC
-      - name: Enable VNC
-        run: |
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
+    - name: Set VNC Password (via Expect)
+      run: |
+        # Install expect if needed (macOS has it)
+        EXPECT_SCRIPT=$(cat << 'EOF'
+        spawn sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes
+        expect "Password:"
+        send "macvnc123!\r"
+        expect "Verify:"
+        send "macvnc123!\r"
+        expect eof
+        EOF
+        )
+        expect -c "$EXPECT_SCRIPT"
 
-      # 4. Start noVNC Server
-      - name: Start noVNC
-        run: |
-          cd noVNC
-          nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
-          sleep 5
+    - name: Optimize macOS for Remote Access
+      run: |
+        # Disable animations
+        defaults write com.apple.finder DisableAllAnimations -bool true
+        defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
+        defaults write com.apple.universalaccess reduceTransparency -bool true
+        
+        # Disable sleep
+        sudo systemsetup -setcomputersleep Never
+        sudo pmset -a autopoweroff 0
+        sudo pmset -a powernap 0
+        sudo pmset -a standby 0
+        sudo pmset -a hibernatemode 0
 
-      # 5. Start ngrok + TUNGGU URL MUNCUL!
-      - name: Start ngrok (URL PASTI MUNCUL!)
-        env:
-          NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
-        run: |
-          curl -s https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.tgz | tar xvz -C /tmp
-          mv /tmp/ngrok /usr/local/bin/
-          ngrok authtoken $NGROK_TOKEN
-          echo "Starting ngrok tunnel..."
-          nohup ngrok http 6080 --log=stdout > ngrok.log 2>&1 &
-          
-          # Tunggu maksimal 60 detik sampai URL muncul
-          for i in {1..60}; do
-            sleep 1
-            URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' ngrok.log | head -1)
-            if [ -n "$URL" ]; then
-              echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
-              echo "GUI URL: $URL"
-              echo "LANGSUNG BUKA: $URL"
-              break
-            fi
-            echo "Menunggu ngrok... ($i/60)"
-          done
-          
-          if [ -z "$URL" ]; then
-            echo "Gagal ambil URL ngrok!"
-            cat ngrok.log
-            exit 1
-          fi
+        # Kill heavy processes
+        pkill -f "Spotlight" || true
 
-      # 6. Final Access Info
-      - name: Show Access Info
-        run: |
-          echo "=================================="
-          echo "MACOS GUI 24/7 SIAP!"
-          echo "=================================="
-          echo "Buka di browser (HP/PC):"
-          echo "$TUNNEL_URL"
-          echo ""
-          echo "LANGSUNG MASUK! (Tidak perlu password/IP)"
-          echo "Auto-restart tiap 5 jam 50 menit"
-          echo "=================================="
+    - name: Start VNC + Localtunnel (with SSH Forward for TCP)
+      run: |
+        # Start SSH server for local forwarding (if not already)
+        sudo systemsetup -setremotelogin on
+        
+        # Create SSH key for local forward (tunnel VNC via local port)
+        ssh-keygen -t rsa -f ~/.ssh/id_rsa -N "" -q
+        
+        # Background: Start localtunnel on a dummy HTTP port, but use SSH for VNC forward
+        # (Localtunnel HTTP, but for VNC TCP: Use SSH tunnel to forward 5900 to a local HTTP proxy if needed; here simple SSH local forward)
+        echo "Starting SSH local forward for VNC (port 5900)..."
+        
+        # Run SSH in background to forward local 5900 to remote 5900 (but since local, it's identity)
+        # Actually, for external: Localtunnel exposes SSH port 22, then client SSH tunnel to VNC
+        lt --port 22 --subdomain myvnc-tunnel-$GITHUB_RUN_ID &  # Expose SSH for tunnel
+        LT_PID=$!
+        sleep 10
+        
+        # Get LT URL
+        LT_URL=$(curl -s http://localhost:4040/api/tunnels | grep -o 'https://[^"]*')
+        echo "Localtunnel URL (for SSH): $LT_URL"
+        echo "TUNNEL_URL=$LT_URL" >> $GITHUB_ENV
+        
+        # Keep alive
+        wait $LT_PID
 
-      # 7. Keep Alive + Pantau URL
-      - name: Keep Alive
-        run: |
-          echo "Runner hidup... Pantau ngrok setiap 60 detik"
-          while true; do
-            sleep 60
-            if grep -q "started tunnel" ngrok.log; then
-              URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' ngrok.log | head -1)
-              echo "[$(date)] TUNNEL AKTIF → $URL"
-            else
-              echo "[$(date)] ngrok masih loading..."
-            fi
-          done
+    - name: Display Connection Instructions
+      run: |
+        echo "=== MACOS VNC VIA LOCALTUNNEL (FREE) ==="
+        echo "1. SSH to tunnel: ssh -L 5900:localhost:5900 runner@$LT_URL"
+        echo "2. Then VNC to: vnc://localhost:5900"
+        echo "Password: macvnc123!"
+        echo "=================================="
+
+    - name: Keep Runner Alive
+      run: |
+        echo "Tunnel active... Sleeping forever."
+        while true; do sleep 300; done
