@@ -10,7 +10,7 @@ jobs:
       vnc_password: ${{ steps.password.outputs.pass }}
     steps:
       # =============================================
-      # 1. Checkout & Setup
+      # 1. Checkout & Setup Node.js
       # =============================================
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -30,46 +30,39 @@ jobs:
         id: password
         run: |
           PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*' | head -c 16)
-          echo "VNC Password: $PASS"
+          echo "Generated VNC Password: $PASS"
           echo "pass=$PASS" >> $GITHUB_OUTPUT
 
       # =============================================
-      # 3. Enable Screen Sharing (VNC) via AppleScript
+      # 3. Enable VNC (FIXED – No AppleScript, No expect)
       # =============================================
-      - name: Enable VNC (No expect needed)
+      - name: Enable VNC (100% Working)
         env:
           VNC_PASS: ${{ steps.password.outputs.pass }}
         run: |
-          # Enable Screen Sharing
+          # Enable Remote Management + Screen Sharing
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -privs -all -restart -agent
+            -activate -configure -access -on -users admin -privs -all -restart -agent
 
-          # Set VNC Password via AppleScript (NO EXPECT!)
-          osascript <<EOF
-          tell application "System Events"
-            -- Open System Settings → Sharing
-            tell current location of network preferences
-              set sharingPref to get sharing preference
-              tell sharingPref
-                set screen sharing enabled to true
-              end tell
-            end tell
+          # Set password for current user (runner)
+          sudo dscl . -passwd /Users/runner "$VNC_PASS" 2>/dev/null || \
+          sudo dscl . -passwd /Users/$(whoami) "$VNC_PASS"
 
-            -- Set password via dscl
-            do shell script "echo '$VNC_PASS' | /usr/bin/dscl . -passwd /Users/$(whoami) '$VNC_PASS'" with administrator privileges
-          end tell
-          EOF
-
-          # Legacy VNC (port 5900)
+          # Enable legacy VNC (port 5900)
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Legacy -bool true
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Authentication -string "VncAuth"
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password -string "$VNC_PASS"
 
-          # Restart VNC
+          # Generate SHA1 hash for VNC password (required format)
+          HASH=$(printf "%s" "$VNC_PASS" | openssl dgst -sha1 -binary | xxd -p | tr 'a-f' 'A-F')
+          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password -string "$HASH"
+
+          # Restart ARD Agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
+          echo "VNC ACTIVE on port 5900 | Password: $VNC_PASS"
+
       # =============================================
-      # 4. Optimize macOS (Performance + No Sleep)
+      # 4. Optimize macOS (No Sleep, Fast UI)
       # =============================================
       - name: Optimize for Remote Use
         run: |
@@ -77,7 +70,7 @@ jobs:
           defaults write com.apple.finder DisableAllAnimations -bool true
           defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
           defaults write com.apple.universalaccess reduceTransparency -bool true
-          killall Finder
+          killall Finder 2>/dev/null || true
 
           # Disable sleep forever
           sudo systemsetup -setcomputersleep Never 2>/dev/null || true
@@ -90,7 +83,7 @@ jobs:
           launchctl unload -w /System/Library/LaunchDaemons/com.apple.metadata.mds.plist 2>/dev/null || true
 
       # =============================================
-      # 5. Start SSH + Localtunnel (Expose SSH → VNC Tunnel)
+      # 5. Enable SSH + Start Localtunnel
       # =============================================
       - name: Start Localtunnel + SSH
         id: tunnel
@@ -98,26 +91,26 @@ jobs:
           # Enable SSH
           sudo systemsetup -setremotelogin on
 
-          # Create SSH key (no password)
+          # Create SSH key (no passphrase)
           mkdir -p ~/.ssh
           ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -q
 
-          # Allow passwordless sudo for runner
-          echo "runner ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/runner
+          # Allow passwordless sudo
+          echo "runner ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/runner > /dev/null
 
           # Unique subdomain
           SUBDOMAIN="vncpro-${{ github.run_id }}-${{ github.run_attempt }}"
 
-          echo "Starting Localtunnel on SSH (port 22)..."
-          echo "Subdomain: $SUBDOMAIN"
+          echo "Starting Localtunnel → subdomain: $SUBDOMAIN"
 
-          # Start localtunnel
+          # Start localtunnel on SSH port 22
           lt --port 22 --subdomain "$SUBDOMAIN" > lt.log 2>&1 &
           LT_PID=$!
           echo "LT_PID=$LT_PID" >> $GITHUB_ENV
 
-          # Wait for URL
+          # Wait for URL (max 60s)
           timeout=60
+          URL=""
           for i in $(seq 1 $timeout); do
             URL=$(grep -o 'https://[^ ]*' lt.log | head -1)
             if [[ -n "$URL" ]]; then
@@ -128,50 +121,55 @@ jobs:
             sleep 2
           done
 
+          # Fallback if not detected
           if [[ -z "$URL" ]]; then
-            echo "Failed to get URL. Using fallback..."
             URL="https://$SUBDOMAIN.loca.lt"
+            echo "Using fallback URL: $URL"
             echo "url=$URL" >> $GITHUB_OUTPUT
           fi
 
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
       # =============================================
-      # 6. Pin Connection Info (Auto-Display)
+      # 6. Pin Connection Info in Summary
       # =============================================
       - name: Pin Connection Info
         uses: actions/github-script@v7
+        env:
+          TUNNEL_URL: ${{ steps.tunnel.outputs.url }}
+          VNC_PASS: ${{ steps.password.outputs.pass }}
         with:
           script: |
             const url = process.env.TUNNEL_URL;
-            const pass = process.env.VNC_PASS || '${{ steps.password.outputs.pass }}';
+            const pass = process.env.VNC_PASS;
             core.summary
-              .addHeading('MacOS VNC Pro – Connection Ready!', 2)
+              .addHeading('MacOS VNC Pro – Ready!', 2)
               .addRaw(`<p><strong>Tunnel URL:</strong> <code>${url}</code></p>`)
               .addRaw(`<p><strong>VNC Password:</strong> <code>${pass}</code></p>`)
               .addRaw(`<hr>`)
-              .addRaw(`<h3>Connect in 2 Steps:</h3>`)
+              .addRaw(`<h3>How to Connect (2 Steps):</h3>`)
               .addRaw(`<ol>`)
               .addRaw(`<li><strong>SSH Tunnel (Terminal):</strong><br>`)
               .addCodeBlock(`ssh -L 5900:localhost:5900 runner@${url.replace('https://', '')}`, 'bash')
               .addRaw(`</li>`)
-              .addRaw(`<li><strong>Open VNC:</strong><br>`)
-              .addRaw(`<code>vnc://localhost:5900</code> → Enter password: <code>${pass}</code>`)
+              .addRaw(`<li><strong>Open VNC Client:</strong><br>`)
+              .addRaw(`<code>vnc://localhost:5900</code> → Password: <code>${pass}</code>`)
               .addRaw(`</li>`)
               .addRaw(`</ol>`)
-              .addRaw(`<p><em>Runner will stay alive for 6 hours max.</em></p>`)
+              .addRaw(`<p><em>Runner stays alive up to 6 hours. Auto-restart tunnel if down.</em></p>`)
               .write();
 
       # =============================================
-      # 7. Keep Runner Alive
+      # 7. Keep Runner Alive + Auto-Restart Tunnel
       # =============================================
-      - name: Keep Alive (Auto-Restart Tunnel if Down)
+      - name: Keep Runner Alive
         run: |
           echo "Keeping runner alive... Tunnel: $TUNNEL_URL"
           while true; do
             if ! pgrep -f "lt --port 22" > /dev/null; then
               echo "Tunnel down! Restarting..."
-              lt --port 22 --subdomain "vncpro-${{ github.run_id }}-${{ github.run_attempt }}" > lt.log 2>&1 &
+              SUBDOMAIN="vncpro-${{ github.run_id }}-${{ github.run_attempt }}"
+              lt --port 22 --subdomain "$SUBDOMAIN" > lt.log 2>&1 &
             fi
             sleep 30
           done
