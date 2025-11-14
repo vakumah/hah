@@ -75,18 +75,4 @@ jobs:
           while true; do
             sleep 300
             echo "[$(date)] Still alive → $TUNNEL_URL"
-          done          echo ""
-          echo "1. Password: gui12345"
-          echo "2. Kosongkan IP Address"
-          echo "3. Klik 'Click' → langsung masuk"
-          echo ""
-          echo "Auto-restart tiap 5 jam 50 menit"
-          echo "=================================="
-
-      - name: Keep Alive
-        run: |
-          echo "Runner hidup... Auto-restart via cron."
-          while true; do
-            sleep 300
-            echo "[$(date)] Still alive → $TUNNEL_URL"
           done
