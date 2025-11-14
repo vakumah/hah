@@ -48,7 +48,7 @@ jobs:
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
 
-      - name: Start LocalTunnel (FIX: Pisah baris!)
+      - name: Start LocalTunnel 
         run: |
           nohup lt --port 6080 --local-host 127.0.0.1 --print-url > tunnel.log 2>&1 &
           sleep 12
