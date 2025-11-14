@@ -1,4 +1,4 @@
-name: macOS GUI 24/7 + noVNC + ngrok (NO PASSWORD, NO IP)
+name: macOS GUI 24/7 + noVNC + ngrok (URL PASTI MUNCUL!)
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       # 1. Install Dependencies
-      - name: Install Node.js & noVNC
+      - name: Install Dependencies
         run: |
           brew install node
           git clone https://github.com/novnc/noVNC.git
@@ -32,36 +32,52 @@ jobs:
             <title>macOS GUI</title>
             <meta http-equiv="refresh" content="0; url=vnc.html?host=localhost&port=5901&autoconnect=true&password=gui12345">
           </head>
-          <body><p>Connecting to macOS...</p></body>
+          <body><p>Connecting...</p></body>
           </html>
           EOF
 
-      # 3. Enable VNC + Set Password
+      # 3. Enable VNC
       - name: Enable VNC
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
 
-      # 4. Start noVNC Server (port 6080)
+      # 4. Start noVNC Server
       - name: Start noVNC
         run: |
           cd noVNC
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
 
-      # 5. Install & Start ngrok (NO PROMPT!)
-      - name: Start ngrok
+      # 5. Start ngrok + TUNGGU URL MUNCUL!
+      - name: Start ngrok (URL PASTI MUNCUL!)
         env:
           NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
         run: |
           curl -s https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.tgz | tar xvz -C /tmp
           mv /tmp/ngrok /usr/local/bin/
           ngrok authtoken $NGROK_TOKEN
+          echo "Starting ngrok tunnel..."
           nohup ngrok http 6080 --log=stdout > ngrok.log 2>&1 &
-          sleep 10
-          URL=$(grep -o 'https://[a-z0-9]*\.ngrok\.io' ngrok.log | head -1)
-          echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
-          echo "GUI URL: $URL"
+          
+          # Tunggu maksimal 60 detik sampai URL muncul
+          for i in {1..60}; do
+            sleep 1
+            URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' ngrok.log | head -1)
+            if [ -n "$URL" ]; then
+              echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
+              echo "GUI URL: $URL"
+              echo "LANGSUNG BUKA: $URL"
+              break
+            fi
+            echo "Menunggu ngrok... ($i/60)"
+          done
+          
+          if [ -z "$URL" ]; then
+            echo "Gagal ambil URL ngrok!"
+            cat ngrok.log
+            exit 1
+          fi
 
       # 6. Final Access Info
       - name: Show Access Info
@@ -76,11 +92,16 @@ jobs:
           echo "Auto-restart tiap 5 jam 50 menit"
           echo "=================================="
 
-      # 7. Keep Alive
+      # 7. Keep Alive + Pantau URL
       - name: Keep Alive
         run: |
-          echo "Runner hidup... Auto-restart via cron."
+          echo "Runner hidup... Pantau ngrok setiap 60 detik"
           while true; do
-            sleep 300
-            echo "[$(date)] Still alive → $TUNNEL_URL"
+            sleep 60
+            if grep -q "started tunnel" ngrok.log; then
+              URL=$(grep -o 'https://[a-z0-9-]*\.ngrok\.io' ngrok.log | head -1)
+              echo "[$(date)] TUNNEL AKTIF → $URL"
+            else
+              echo "[$(date)] ngrok masih loading..."
+            fi
           done
