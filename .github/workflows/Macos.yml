@@ -24,8 +24,7 @@ jobs:
         run: |
           cd noVNC
           cp vnc.html index.html
-          # Auto-connect ke localhost:5901 + bypass delay
-          cat << 'EOF' > index.html
+          cat > index.html << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
@@ -33,7 +32,7 @@ jobs:
             <meta http-equiv="refresh" content="0; url=vnc.html?host=localhost&port=5901&autoconnect=true&password=gui12345">
           </head>
           <body>
-            <p>Loading GUI...</p>
+            <p>Loading...</p>
           </body>
           </html>
           EOF
@@ -49,11 +48,11 @@ jobs:
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
 
-      - name: Start LocalTunnel (FIX: local-host 127.0.0.1)
+      - name: Start LocalTunnel (FIX: Pisah baris!)
         run: |
           nohup lt --port 6080 --local-host 127.0.0.1 --print-url > tunnel.log 2>&1 &
           sleep 12
-          URL=$(grep -o 'https://[^ ]*' tunnel.log | head -1)
+          URL=$(grep -o 'https://[^[:space:]]*' tunnel.log | head -1)
           echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
           echo "GUI URL: $URL"
 
