@@ -1,9 +1,9 @@
-name: macOS GUI 24/7 + noVNC + LocalTunnel
+name: macOS GUI 24/7 + noVNC + LocalTunnel (FIXED)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/350 * * * *'  # Restart tiap 5 jam 50 menit (sebelum 6 jam mati)
+    - cron: '*/350 * * * *'  # Auto-restart tiap 5 jam 50 menit
 
 jobs:
   gui:
@@ -11,62 +11,52 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # 1. Checkout
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Install Dependencies
-      - name: Install Node.js, LocalTunnel, noVNC
+      - name: Install Dependencies
         run: |
           brew install node
           npm install -g localtunnel
           git clone https://github.com/novnc/noVNC.git
           cd noVNC
           cp vnc.html index.html
-          echo '<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0; url=./?host=localhost&port=5901&autoconnect=true"></head></html>' > index.html
+          # Auto-connect + bypass
+          sed -i '' 's|</head>|<script>window.addEventListener("load", function(){ setTimeout(function(){ document.querySelector("connect").click(); }, 2000); });</script></head>|' index.html
 
-      # 3. Enable VNC + Set Password
       - name: Enable VNC
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
 
-      # 4. Start noVNC Web Server (port 6080)
       - name: Start noVNC
         run: |
           cd noVNC
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
-          echo "noVNC started on port 6080"
 
-      # 5. Start LocalTunnel (HTTPS → noVNC)
-      - name: Start LocalTunnel
+      - name: Start LocalTunnel (FIX: local-host 127.0.0.1)
         run: |
-          nohup lt --port 6080 --print-url --local-host localhost > tunnel.log 2>&1 &
+          nohup lt --port 6080 --local-host 127.0.0.1 --print-url > tunnel.log 2>&1 &
           sleep 12
           URL=$(grep -o 'https://[^ ]*' tunnel.log | head -1)
           echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
           echo "GUI URL: $URL"
-          echo "Bookmark ini: $URL"
 
-      # 6. Show Access Info
       - name: Final URL
         run: |
           echo "=================================="
           echo "MACOS GUI 24/7 SIAP!"
           echo "=================================="
-          echo "Buka di browser (HP/PC):"
-          echo "$TUNNEL_URL"
+          echo "Buka: $TUNNEL_URL"
           echo ""
-          echo "Password VNC: gui12345"
+          echo "1. Masukkan password: gui12345"
+          echo "2. Kosongkan IP → langsung klik 'Click'"
+          echo "   (Abaikan 'valid IPv4' – bug LocalTunnel)"
+          echo ""
           echo "Auto-restart tiap 5 jam 50 menit"
           echo "=================================="
 
-      # 7. Keep Alive + Auto-Restart Hint
       - name: Keep Alive
         run: |
-          echo "Runner hidup... Auto-restart via cron: */350 * * * *"
-          while true; do
-            sleep 300
-            echo "[$(date)] Still alive... GUI: $TUNNEL_URL"
-          done
+          while true; do sleep 300; echo "[$(date)] Alive → $TUNNEL_URL"; done
