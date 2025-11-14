@@ -1,9 +1,9 @@
-name: macOS GUI 24/7 + noVNC + LocalTunnel
+name: macOS GUI 24/7 + noVNC + ngrok (NO PASSWORD, NO IP)
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/350 * * * *'
+    - cron: '*/350 * * * *'  # Auto-restart tiap 5 jam 50 menit
 
 jobs:
   gui:
@@ -14,13 +14,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
+      # 1. Install Dependencies
+      - name: Install Node.js & noVNC
         run: |
           brew install node
-          npm install -g localtunnel
           git clone https://github.com/novnc/noVNC.git
 
-      - name: Setup noVNC Auto-Connect
+      # 2. Setup noVNC Auto-Connect
+      - name: Setup noVNC
         run: |
           cd noVNC
           cp vnc.html index.html
@@ -31,44 +32,51 @@ jobs:
             <title>macOS GUI</title>
             <meta http-equiv="refresh" content="0; url=vnc.html?host=localhost&port=5901&autoconnect=true&password=gui12345">
           </head>
-          <body><p>Loading GUI...</p></body>
+          <body><p>Connecting to macOS...</p></body>
           </html>
           EOF
 
-      - name: Enable VNC and Set Password
+      # 3. Enable VNC + Set Password
+      - name: Enable VNC
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
 
-      - name: Start noVNC Server
+      # 4. Start noVNC Server (port 6080)
+      - name: Start noVNC
         run: |
           cd noVNC
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
 
-      - name: Start LocalTunnel
+      # 5. Install & Start ngrok (NO PROMPT!)
+      - name: Start ngrok
+        env:
+          NGROK_TOKEN: ${{ secrets.NGROK_TOKEN }}
         run: |
-          nohup lt --port 6080 --local-host 127.0.0.1 --print-url > tunnel.log 2>&1 &
-          sleep 12
-          URL=$(grep -o 'https://[^[:space:]]*' tunnel.log | head -1 || echo "https://localhost")
+          curl -s https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-darwin-amd64.tgz | tar xvz -C /tmp
+          mv /tmp/ngrok /usr/local/bin/
+          ngrok authtoken $NGROK_TOKEN
+          nohup ngrok http 6080 --log=stdout > ngrok.log 2>&1 &
+          sleep 10
+          URL=$(grep -o 'https://[a-z0-9]*\.ngrok\.io' ngrok.log | head -1)
           echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
           echo "GUI URL: $URL"
 
+      # 6. Final Access Info
       - name: Show Access Info
         run: |
           echo "=================================="
           echo "MACOS GUI 24/7 SIAP!"
           echo "=================================="
-          echo "Buka di browser:"
+          echo "Buka di browser (HP/PC):"
           echo "$TUNNEL_URL"
           echo ""
-          echo "1. Password: gui12345"
-          echo "2. Kosongkan IP Address"
-          echo "3. Klik 'Click' → langsung masuk"
-          echo ""
+          echo "LANGSUNG MASUK! (Tidak perlu password/IP)"
           echo "Auto-restart tiap 5 jam 50 menit"
           echo "=================================="
 
+      # 7. Keep Alive
       - name: Keep Alive
         run: |
           echo "Runner hidup... Auto-restart via cron."
