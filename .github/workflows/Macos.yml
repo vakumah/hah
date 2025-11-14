@@ -1,109 +1,76 @@
-name: MacOS VNC Pro – Localtunnel (FIXED & WORKING)
+name: MacOS GUI VNC + Serveo (FULL DESKTOP)
 on:
   workflow_dispatch:
 
 jobs:
-  vnc-tunnel:
+  vnc-gui:
     runs-on: macos-14
-    outputs:
-      tunnel_url: ${{ steps.tunnel.outputs.url }}
-      vnc_password: ${{ steps.password.outputs.pass }}
     steps:
-      # =============================================
-      # 1. Setup
-      # =============================================
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install Localtunnel
-        run: npm install -g localtunnel
-
-      # =============================================
-      # 2. Generate Random Password
-      # =============================================
-      - name: Generate Random VNC Password
+      - name: Generate Password
         id: password
         run: |
           PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*' | head -c 16)
           echo "pass=$PASS" >> $GITHUB_OUTPUT
-          echo "VNC Password: $PASS"
 
-      # =============================================
-      # 3. Enable VNC + Set Password (FIXED with sysadminctl)
-      # =============================================
-      - name: Enable VNC & Set Password (sysadminctl)
+      - name: Enable GUI VNC + Create User
         env:
           VNC_PASS: ${{ steps.password.outputs.pass }}
         run: |
-          # Create admin user 'vncuser' with password
-          sudo sysadminctl -addUser vncuser -fullName "VNC User" -password "$VNC_PASS" -admin
+          # Buat user admin
+          sudo sysadminctl -addUser vncuser -fullName "GUI User" -password "$VNC_PASS" -admin
 
-          # Enable Remote Management
+          # Aktifkan Screen Sharing + Full Control
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -users vncuser -privs -all -restart -agent
+            -activate -configure -access -on -users vncuser -privs -all -restart -agent -menu
 
-          # Enable legacy VNC (port 5900)
+          # Legacy VNC + SHA1 hash
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Legacy -bool true
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Authentication -string "VncAuth"
-
-          # Generate VNC password hash
           HASH=$(printf "%s" "$VNC_PASS" | openssl dgst -sha1 -binary | xxd -p | tr 'a-f' 'A-F')
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password -string "$HASH"
 
-          # Restart agent
+          # Restart
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
 
-          echo "VNC READY | User: vncuser | Pass: $VNC_PASS"
+          # Auto-login GUI untuk vncuser (BIAR GUI NYALA!)
+          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "vncuser"
 
-      # =============================================
-      # 4. Optimize macOS
-      # =============================================
-      - name: Optimize for Remote
+          echo "GUI VNC READY → vncuser / $VNC_PASS"
+
+      - name: Optimize GUI
         run: |
+          # Disable animasi
           defaults write com.apple.finder DisableAllAnimations -bool true
           defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
-          killall Finder 2>/dev/null || true
+          killall Finder
 
-          sudo systemsetup -setcomputersleep Never 2>/dev/null || true
+          # No sleep
+          sudo systemsetup -setcomputersleep Never
           sudo pmset -a autopoweroff 0
-          sudo pmset -a powernap 0
-          sudo pmset -a standby 0
 
-      # =============================================
-      # 5. Start SSH + Localtunnel
-      # =============================================
-      - name: Start Localtunnel + SSH
+          # Reduce load
+          launchctl unload -w /System/Library/LaunchDaemons/com.apple.metadata.mds.plist 2>/dev/null || true
+
+      - name: Start Serveo (Direct VNC Port 80)
         id: tunnel
         run: |
           sudo systemsetup -setremotelogin on
 
-          # SSH key
-          mkdir -p /Users/vncuser/.ssh
-          ssh-keygen -t ed25519 -f /Users/vncuser/.ssh/id_ed25519 -N "" -q
-          sudo chown vncuser:staff /Users/vncuser/.ssh -R
+          SUB="gui-${{ github.run_id }}"
 
-          # Allow vncuser sudo
-          echo "vncuser ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/vncuser
-
-          SUBDOMAIN="vncpro-${{ github.run_id }}-${{ github.run_attempt }}"
-          lt --port 22 --subdomain "$SUBDOMAIN" > lt.log 2>&1 &
-          LT_PID=$!
-          echo "LT_PID=$LT_PID" >> $GITHUB_ENV
+          # Serveo forward port 5900 → 80 (direct VNC)
+          ssh -R 80:localhost:5900 serveo.net -o StrictHostKeyChecking=no > serveo.log 2>&1 &
+          echo $! > serveo.pid
 
           sleep 15
-          URL=$(grep -o 'https://[^ ]*' lt.log | head -1 || echo "https://$SUBDOMAIN.loca.lt")
+          URL=$(grep -o 'https://[^ ]*\.serveo.net' serveo.log | head -1 || echo "https://$SUB.serveo.net")
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
 
-      # =============================================
-      # 6. Summary
-      # =============================================
-      - name: Pin Connection Info
+      - name: Summary – GUI CONNECT
         uses: actions/github-script@v7
         env:
           URL: ${{ steps.tunnel.outputs.url }}
@@ -111,28 +78,27 @@ jobs:
         with:
           script: |
             core.summary
-              .addHeading('MacOS VNC PRO – CONNECT NOW!', 2)
-              .addRaw(`<p><strong>Tunnel URL:</strong> <code>${process.env.URL}</code></p>`)
-              .addRaw(`<p><strong>Username:</strong> <code>vncuser</code></p>`)
-              .addRaw(`<p><strong>Password:</strong> <code>${process.env.PASS}</code></p>`)
-              .addRaw(`<hr><h3>Connect:</h3>`)
+              .addHeading('MacOS FULL GUI – VNC READY!', 2)
+              .addRaw(`<p><strong>VNC URL:</strong> <code>${process.env.URL}:80</code></p>`)
+              .addRaw(`<p><strong>User:</strong> <code>vncuser</code> | <strong>Pass:</strong> <code>${process.env.PASS}</code></p>`)
+              .addRaw(`<hr>`)
+              .addRaw(`<h3>OPEN GUI SEKARANG:</h3>`)
               .addRaw(`<ol>`)
-              .addRaw(`<li><strong>SSH Tunnel:</strong><br>`)
-              .addCodeBlock(`ssh -L 5900:localhost:5900 vncuser@${process.env.URL.replace('https://', '')}`, 'bash')
+              .addRaw(`<li><strong>Buka VNC Client (RealVNC, TigerVNC, Screen Sharing)</strong></li>`)
+              .addRaw(`<li><strong>Connect to:</strong><br>`)
+              .addCodeBlock(`vnc://${process.env.URL.replace('https://', '')}:80`, 'text')
               .addRaw(`</li>`)
-              .addRaw(`<li><strong>VNC:</strong> <code>vnc://localhost:5900</code></li>`)
+              .addRaw(`<li><strong>Login:</strong> <code>vncuser</code> / <code>${process.env.PASS}</code></li>`)
               .addRaw(`</ol>`)
+              .addRaw(`<p><strong>GUI FULL: Finder, Safari, Terminal, VS Code, Xcode – SEMUA ADA!</strong></p>`)
               .write();
 
-      # =============================================
-      # 7. Keep Alive
-      # =============================================
       - name: Keep Alive
         run: |
           while true; do
-            if ! pgrep -f "lt --port 22" > /dev/null; then
-              SUBDOMAIN="vncpro-${{ github.run_id }}-${{ github.run_attempt }}"
-              lt --port 22 --subdomain "$SUBDOMAIN" > lt.log 2>&1 &
+            if ! pgrep -f serveo.net > /dev/null; then
+              SUB="gui-${{ github.run_id }}"
+              ssh -R 80:localhost:5900 serveo.net > serveo.log 2>&1 &
             fi
             sleep 30
           done
