@@ -1,4 +1,4 @@
-name: macOS GUI 24/7 + noVNC + LocalTunnel (FIXED)
+name: macOS GUI 24/7 + noVNC + LocalTunnel (FIXED & VALID)
 
 on:
   workflow_dispatch:
@@ -19,17 +19,31 @@ jobs:
           brew install node
           npm install -g localtunnel
           git clone https://github.com/novnc/noVNC.git
+
+      - name: Setup noVNC Auto-Connect
+        run: |
           cd noVNC
           cp vnc.html index.html
-          # Auto-connect + bypass
-          sed -i '' 's|</head>|<script>window.addEventListener("load", function(){ setTimeout(function(){ document.querySelector("connect").click(); }, 2000); });</script></head>|' index.html
+          # Auto-connect ke localhost:5901 + bypass delay
+          cat << 'EOF' > index.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>macOS GUI</title>
+            <meta http-equiv="refresh" content="0; url=vnc.html?host=localhost&port=5901&autoconnect=true&password=gui12345">
+          </head>
+          <body>
+            <p>Loading GUI...</p>
+          </body>
+          </html>
+          EOF
 
-      - name: Enable VNC
+      - name: Enable VNC + Set Password
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
 
-      - name: Start noVNC
+      - name: Start noVNC Server
         run: |
           cd noVNC
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
@@ -43,20 +57,25 @@ jobs:
           echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
           echo "GUI URL: $URL"
 
-      - name: Final URL
+      - name: Final Access Info
         run: |
           echo "=================================="
           echo "MACOS GUI 24/7 SIAP!"
           echo "=================================="
-          echo "Buka: $TUNNEL_URL"
+          echo "Buka di browser:"
+          echo "$TUNNEL_URL"
           echo ""
           echo "1. Masukkan password: gui12345"
-          echo "2. Kosongkan IP → langsung klik 'Click'"
-          echo "   (Abaikan 'valid IPv4' – bug LocalTunnel)"
+          echo "2. Kosongkan IP Address"
+          echo "3. Klik 'Click' → langsung masuk GUI"
           echo ""
-          echo "Auto-restart tiap 5 jam 50 menit"
+          echo "Auto-restart: setiap 5 jam 50 menit"
           echo "=================================="
 
       - name: Keep Alive
         run: |
-          while true; do sleep 300; echo "[$(date)] Alive → $TUNNEL_URL"; done
+          echo "Runner hidup max 6 jam... Auto-restart via cron."
+          while true; do
+            sleep 300
+            echo "[$(date)] Still alive → $TUNNEL_URL"
+          done
