@@ -1,4 +1,4 @@
-name: macOS GUI 24/7 + noVNC + LocalTunnel (FINAL FIX)
+name: macOS GUI 24/7 + noVNC + LocalTunnel
 
 on:
   workflow_dispatch:
@@ -35,7 +35,7 @@ jobs:
           </html>
           EOF
 
-      - name: Enable VNC + Set Password
+      - name: Enable VNC and Set Password
         run: |
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -privs -all -setvncpw -vncpw "gui12345"
@@ -46,7 +46,7 @@ jobs:
           nohup python3 -m http.server 6080 > ../novnc.log 2>&1 &
           sleep 5
 
-      - name: Start LocalTunnel (FIX: Pisah Baris!)
+      - name: Start LocalTunnel
         run: |
           nohup lt --port 6080 --local-host 127.0.0.1 --print-url > tunnel.log 2>&1 &
           sleep 12
@@ -54,7 +54,7 @@ jobs:
           echo "TUNNEL_URL=$URL" >> $GITHUB_OUTPUT
           echo "GUI URL: $URL"
 
-      - name: Final Access Info
+      - name: Show Access Info
         run: |
           echo "=================================="
           echo "MACOS GUI 24/7 SIAP!"
@@ -62,6 +62,20 @@ jobs:
           echo "Buka di browser:"
           echo "$TUNNEL_URL"
           echo ""
+          echo "1. Password: gui12345"
+          echo "2. Kosongkan IP Address"
+          echo "3. Klik 'Click' → langsung masuk"
+          echo ""
+          echo "Auto-restart tiap 5 jam 50 menit"
+          echo "=================================="
+
+      - name: Keep Alive
+        run: |
+          echo "Runner hidup... Auto-restart via cron."
+          while true; do
+            sleep 300
+            echo "[$(date)] Still alive → $TUNNEL_URL"
+          done          echo ""
           echo "1. Password: gui12345"
           echo "2. Kosongkan IP Address"
           echo "3. Klik 'Click' → langsung masuk"
