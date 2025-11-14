@@ -1,9 +1,9 @@
-name: MacOS GUI VNC + Serveo (FULL DESKTOP)
+name: MacOS GUI VNC + ngrok (STABIL & CEPAT)
 on:
   workflow_dispatch:
 
 jobs:
-  vnc-gui:
+  vnc-ngrok:
     runs-on: macos-14
     steps:
       - name: Checkout
@@ -15,90 +15,59 @@ jobs:
           PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*' | head -c 16)
           echo "pass=$PASS" >> $GITHUB_OUTPUT
 
-      - name: Enable GUI VNC + Create User
+      - name: Enable GUI VNC + User
         env:
           VNC_PASS: ${{ steps.password.outputs.pass }}
         run: |
-          # Buat user admin
           sudo sysadminctl -addUser vncuser -fullName "GUI User" -password "$VNC_PASS" -admin
-
-          # Aktifkan Screen Sharing + Full Control
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on -users vncuser -privs -all -restart -agent -menu
-
-          # Legacy VNC + SHA1 hash
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Legacy -bool true
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Authentication -string "VncAuth"
           HASH=$(printf "%s" "$VNC_PASS" | openssl dgst -sha1 -binary | xxd -p | tr 'a-f' 'A-F')
           sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password -string "$HASH"
-
-          # Restart
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
-
-          # Auto-login GUI untuk vncuser (BIAR GUI NYALA!)
           sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "vncuser"
 
-          echo "GUI VNC READY → vncuser / $VNC_PASS"
-
-      - name: Optimize GUI
+      - name: Install ngrok
         run: |
-          # Disable animasi
-          defaults write com.apple.finder DisableAllAnimations -bool true
-          defaults write NSGlobalDomain NSAutomaticWindowAnimationsEnabled -bool false
-          killall Finder
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt update && sudo apt install ngrok -y
+          ngrok authtoken ${{ secrets.NGROK_TOKEN }}
 
-          # No sleep
-          sudo systemsetup -setcomputersleep Never
-          sudo pmset -a autopoweroff 0
-
-          # Reduce load
-          launchctl unload -w /System/Library/LaunchDaemons/com.apple.metadata.mds.plist 2>/dev/null || true
-
-      - name: Start Serveo (Direct VNC Port 80)
-        id: tunnel
+      - name: Start ngrok TCP Tunnel
+        id: ngrok
         run: |
-          sudo systemsetup -setremotelogin on
-
-          SUB="gui-${{ github.run_id }}"
-
-          # Serveo forward port 5900 → 80 (direct VNC)
-          ssh -R 80:localhost:5900 serveo.net -o StrictHostKeyChecking=no > serveo.log 2>&1 &
-          echo $! > serveo.pid
-
-          sleep 15
-          URL=$(grep -o 'https://[^ ]*\.serveo.net' serveo.log | head -1 || echo "https://$SUB.serveo.net")
+          ngrok tcp 5900 > ngrok.log 2>&1 &
+          echo $! > ngrok.pid
+          sleep 10
+          URL=$(grep -o 'tcp://[0-9a-zA-Z.-]*:[0-9]*' ngrok.log | head -1)
           echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "TUNNEL_URL=$URL" >> $GITHUB_ENV
+          echo "NGROK_URL=$URL" >> $GITHUB_ENV
 
-      - name: Summary – GUI CONNECT
+      - name: Summary – CONNECT SEKARANG!
         uses: actions/github-script@v7
         env:
-          URL: ${{ steps.tunnel.outputs.url }}
+          URL: ${{ steps.ngrok.outputs.url }}
           PASS: ${{ steps.password.outputs.pass }}
         with:
           script: |
+            const url = process.env.URL.replace('tcp://', '');
             core.summary
-              .addHeading('MacOS FULL GUI – VNC READY!', 2)
-              .addRaw(`<p><strong>VNC URL:</strong> <code>${process.env.URL}:80</code></p>`)
+              .addHeading('MACOS GUI – VNC NGROK READY!', 2)
+              .addRaw(`<p><strong>VNC URL:</strong> <code>${url}</code></p>`)
               .addRaw(`<p><strong>User:</strong> <code>vncuser</code> | <strong>Pass:</strong> <code>${process.env.PASS}</code></p>`)
-              .addRaw(`<hr>`)
-              .addRaw(`<h3>OPEN GUI SEKARANG:</h3>`)
+              .addRaw(`<hr><h3>CONNECT:</h3>`)
               .addRaw(`<ol>`)
-              .addRaw(`<li><strong>Buka VNC Client (RealVNC, TigerVNC, Screen Sharing)</strong></li>`)
-              .addRaw(`<li><strong>Connect to:</strong><br>`)
-              .addCodeBlock(`vnc://${process.env.URL.replace('https://', '')}:80`, 'text')
+              .addRaw(`<li><strong>VNC Client → Connect:</strong><br>`)
+              .addCodeBlock(`${url}`, 'text')
               .addRaw(`</li>`)
-              .addRaw(`<li><strong>Login:</strong> <code>vncuser</code> / <code>${process.env.PASS}</code></li>`)
+              .addRaw(`<li><strong>Login: <code>vncuser</code> / <code>${process.env.PASS}</code></strong></li>`)
               .addRaw(`</ol>`)
-              .addRaw(`<p><strong>GUI FULL: Finder, Safari, Terminal, VS Code, Xcode – SEMUA ADA!</strong></p>`)
+              .addRaw(`<p>GUI: Finder, Safari, Terminal, VS Code, Xcode – SEMUA ADA!</p>`)
               .write();
 
       - name: Keep Alive
         run: |
-          while true; do
-            if ! pgrep -f serveo.net > /dev/null; then
-              SUB="gui-${{ github.run_id }}"
-              ssh -R 80:localhost:5900 serveo.net > serveo.log 2>&1 &
-            fi
-            sleep 30
-          done
+          while true; do sleep 30; done
