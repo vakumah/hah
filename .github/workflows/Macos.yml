@@ -1,36 +1,39 @@
-name: macOS-GUI-Serveo
+name: macOS-GUI-Serveo-Fixed
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-gui:
+  macos:
     runs-on: macos-latest
 
     steps:
-      - name: Enable VNC Screen Sharing
+      - name: Enable VNC
         run: |
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings ControlDial -bool true
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -activate -configure -access -on \
             -clientopts -setvnclegacy -vnclegacy yes \
             -clientopts -setvncpw -vncpw "123456" \
             -restart -agent -privs -all
-          echo "VNC Password set: 123456"
+          echo "VNC password = 123456"
 
-      - name: Install OpenSSH (macOS already has)
-        run: |
-          echo "SSH already installed."
-
-      - name: Start Serveo Tunnel (port 5900)
+      - name: Start Serveo Tunnel (No Crash)
         run: |
           echo "Starting Serveo tunnel..."
-          ssh -o StrictHostKeyChecking=no -R 5900:localhost:5900 serveo.net > serveo.log 2>&1 &
-
-          sleep 5
-          echo "===== SERVEO URL ====="
-          cat serveo.log | grep -Eo "https://[a-zA-Z0-9./_-]+"
+          while true; do
+            ssh -o StrictHostKeyChecking=no \
+                -o ServerAliveInterval=60 \
+                -R 5900:localhost:5900 serveo.net \
+                2>&1 | tee serveo.log
+            echo "SSH disconnected... retrying in 3 seconds"
+            sleep 3
+          done &
+          sleep 8
+          echo "======= SERVEO INFO ======="
+          cat serveo.log | grep -Eo "Forwarding.*"
 
       - name: Keep Runner Alive
-        run: sleep 43200
+        run: |
+          echo "Runner alive for 12 hours"
+          sleep 43200
