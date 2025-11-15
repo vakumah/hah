@@ -1,73 +1,39 @@
-name: MacOS GUI VNC + ngrok (STABIL & CEPAT)
+name: macOS-GUI-LocalTunnel
+
 on:
   workflow_dispatch:
 
 jobs:
-  vnc-ngrok:
-    runs-on: macos-14
+  macos-gui:
+    runs-on: macos-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Generate Password
-        id: password
+      - name: Enable Screen Sharing (VNC)
         run: |
-          PASS=$(openssl rand -base64 12 | tr -dc 'A-Za-z0-9!@#$%^&*' | head -c 16)
-          echo "pass=$PASS" >> $GITHUB_OUTPUT
-
-      - name: Enable GUI VNC + User
-        env:
-          VNC_PASS: ${{ steps.password.outputs.pass }}
-        run: |
-          sudo sysadminctl -addUser vncuser -fullName "GUI User" -password "$VNC_PASS" -admin
+          sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
+          sudo defaults write /Library/Preferences/com.apple.VNCSettings ControlDial -bool true
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -users vncuser -privs -all -restart -agent -menu
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Legacy -bool true
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Authentication -string "VncAuth"
-          HASH=$(printf "%s" "$VNC_PASS" | openssl dgst -sha1 -binary | xxd -p | tr 'a-f' 'A-F')
-          sudo defaults write /Library/Preferences/com.apple.VNCSettings.txt Password -string "$HASH"
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
-          sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser -string "vncuser"
+            -activate -configure -access -on \
+            -clientopts -setvnclegacy -vnclegacy yes \
+            -clientopts -setvncpw -vncpw "123456" \
+            -restart -agent -privs -all
+          echo "VNC Password set to: 123456"
 
-      - name: Install ngrok
+      - name: Install Node & LocalTunnel
         run: |
-          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
-          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
-          sudo apt update && sudo apt install ngrok -y
-          ngrok authtoken ${{ secrets.NGROK_TOKEN }}
+          brew install node
+          npm install -g localtunnel
 
-      - name: Start ngrok TCP Tunnel
-        id: ngrok
+      - name: Start LocalTunnel for port 5900
         run: |
-          ngrok tcp 5900 > ngrok.log 2>&1 &
-          echo $! > ngrok.pid
-          sleep 10
-          URL=$(grep -o 'tcp://[0-9a-zA-Z.-]*:[0-9]*' ngrok.log | head -1)
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "NGROK_URL=$URL" >> $GITHUB_ENV
+          echo "Starting LocalTunnel on port 5900..."
+          lt --port 5900 > lturl.log &
 
-      - name: Summary – CONNECT SEKARANG!
-        uses: actions/github-script@v7
-        env:
-          URL: ${{ steps.ngrok.outputs.url }}
-          PASS: ${{ steps.password.outputs.pass }}
-        with:
-          script: |
-            const url = process.env.URL.replace('tcp://', '');
-            core.summary
-              .addHeading('MACOS GUI – VNC NGROK READY!', 2)
-              .addRaw(`<p><strong>VNC URL:</strong> <code>${url}</code></p>`)
-              .addRaw(`<p><strong>User:</strong> <code>vncuser</code> | <strong>Pass:</strong> <code>${process.env.PASS}</code></p>`)
-              .addRaw(`<hr><h3>CONNECT:</h3>`)
-              .addRaw(`<ol>`)
-              .addRaw(`<li><strong>VNC Client → Connect:</strong><br>`)
-              .addCodeBlock(`${url}`, 'text')
-              .addRaw(`</li>`)
-              .addRaw(`<li><strong>Login: <code>vncuser</code> / <code>${process.env.PASS}</code></strong></li>`)
-              .addRaw(`</ol>`)
-              .addRaw(`<p>GUI: Finder, Safari, Terminal, VS Code, Xcode – SEMUA ADA!</p>`)
-              .write();
+          sleep 5
+          echo "===== LOCAL TUNNEL URL ====="
+          cat lturl.log
 
-      - name: Keep Alive
+      - name: Keep Runner Alive (12 hours)
         run: |
-          while true; do sleep 30; done
+          echo "Runner active for 12 hours..."
+          sleep 43200
