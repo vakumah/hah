@@ -1,4 +1,4 @@
-name: macOS-GUI-LocalTunnel
+name: macOS-GUI-Serveo
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - name: Enable Screen Sharing (VNC)
+      - name: Enable VNC Screen Sharing
         run: |
           sudo launchctl load -w /System/Library/LaunchDaemons/com.apple.screensharing.plist
           sudo defaults write /Library/Preferences/com.apple.VNCSettings ControlDial -bool true
@@ -17,23 +17,20 @@ jobs:
             -clientopts -setvnclegacy -vnclegacy yes \
             -clientopts -setvncpw -vncpw "123456" \
             -restart -agent -privs -all
-          echo "VNC Password set to: 123456"
+          echo "VNC Password set: 123456"
 
-      - name: Install Node & LocalTunnel
+      - name: Install OpenSSH (macOS already has)
         run: |
-          brew install node
-          npm install -g localtunnel
+          echo "SSH already installed."
 
-      - name: Start LocalTunnel for port 5900
+      - name: Start Serveo Tunnel (port 5900)
         run: |
-          echo "Starting LocalTunnel on port 5900..."
-          lt --port 5900 > lturl.log &
+          echo "Starting Serveo tunnel..."
+          ssh -o StrictHostKeyChecking=no -R 5900:localhost:5900 serveo.net > serveo.log 2>&1 &
 
           sleep 5
-          echo "===== LOCAL TUNNEL URL ====="
-          cat lturl.log
+          echo "===== SERVEO URL ====="
+          cat serveo.log | grep -Eo "https://[a-zA-Z0-9./_-]+"
 
-      - name: Keep Runner Alive (12 hours)
-        run: |
-          echo "Runner active for 12 hours..."
-          sleep 43200
+      - name: Keep Runner Alive
+        run: sleep 43200
