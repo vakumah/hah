@@ -1,4 +1,4 @@
-name: macOS-GUI-Serveo-Fixed
+name: macOS-VNC-LocalTunnel
 
 on:
   workflow_dispatch:
@@ -18,20 +18,17 @@ jobs:
             -restart -agent -privs -all
           echo "VNC password = 123456"
 
-      - name: Start Serveo Tunnel (No Crash)
+      - name: Install LocalTunnel
         run: |
-          echo "Starting Serveo tunnel..."
-          while true; do
-            ssh -o StrictHostKeyChecking=no \
-                -o ServerAliveInterval=60 \
-                -R 5900:localhost:5900 serveo.net \
-                2>&1 | tee serveo.log
-            echo "SSH disconnected... retrying in 3 seconds"
-            sleep 3
-          done &
-          sleep 8
-          echo "======= SERVEO INFO ======="
-          cat serveo.log | grep -Eo "Forwarding.*"
+          npm install -g localtunnel
+
+      - name: Start LocalTunnel for VNC
+        run: |
+          echo "Starting LocalTunnel on port 5900..."
+          lt --port 5900 --print-requests > lt.log 2>&1 &
+          sleep 5
+          echo "===== LOCAL TUNNEL URL ====="
+          cat lt.log | grep https
 
       - name: Keep Runner Alive
         run: |
