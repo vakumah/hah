@@ -1,0 +1,72 @@
+name: Playit RDP Extreme Full Optimized
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-rdp-tunnel:
+    runs-on: windows-2025
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v2
+
+    - name: Download Playit & Basic Setup
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+
+    - name: Extreme System & Network Optimization
+      run: |
+        # 1. PAKSA COLOR DEPTH 16-BIT (Hemat Bandwidth)
+        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
+        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 2
+        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
+
+        # 2. TCP LOW LATENCY (Hapus delay mouse/keyboard)
+        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        Get-ChildItem $tcpKey | ForEach-Object {
+            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+        }
+
+        # 3. MATIKAN SEMUA EFEK VISUAL (Mode Windows Klasik)
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
+
+        # 4. OPTIMASI BROWSER (Matikan Hardware Acceleration)
+        # Agar buka web beranimasi tidak berat di internet lemah
+        $chromeReg = "HKLM:\SOFTWARE\Policies\Google\Chrome"
+        if (!(Test-Path $chromeReg)) { New-Item -Path $chromeReg -Force }
+        Set-ItemProperty -Path $chromeReg -Name "HardwareAccelerationModeEnabled" -Value 0
+
+        # 5. MATIKAN LAYANAN BERAT
+        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler"
+        foreach ($svc in $services) {
+          Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+          Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Power Profile: Performance
+        powercfg /setactive SCHEME_MIN
+
+    - name: Start Playit Tunnel
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+      run: |
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
+        Start-Sleep -Seconds 10
+
+    - name: Final Check & Keep Alive
+      run: |
+        Write-Output "RDP Berhasil dioptimasi maksimal!"
+        Write-Output "User: runneradmin | Pass: p@ssw0rd!"
+        while ($true) {
+          Get-Process playit -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 300
+        }
