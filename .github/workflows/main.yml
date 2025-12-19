@@ -1,4 +1,4 @@
-name: Playit RDP Tunnel (Windows Optimized)
+name: Windows RDP Ultimate God Mode (Zero Lag)
 
 on:
   workflow_dispatch:
@@ -11,29 +11,69 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v2
 
-    - name: Download & Install Playit
+    - name: Extreme Optimization (Defender, Network, & CPU)
       run: |
-        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-        Start-Sleep -Seconds 5
+        # 1. MATIKAN WINDOWS DEFENDER & FIREWALL (Biar CPU 100% buat RDP)
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Set-MpPreference -DisableBehaviorMonitoring $true
+        Set-MpPreference -DisableIOAVProtection $true
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
-    - name: Enable RDP
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "MinEncryptionLevel" -Value 3
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+        # 2. PAKSA COLOR DEPTH 16-BIT & LOW ENCRYPTION
+        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
+        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 2
+        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
 
-    - name: Optimize Windows for RDP
-      run: |
-        # Disable services that eat resources
-        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","RetailDemo","Fax","wuauserv","BITS","Spooler"
+        # 3. TCP LOW LATENCY (Hapus delay mouse & keyboard)
+        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        Get-ChildItem $tcpKey | ForEach-Object {
+            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+        }
+
+        # 4. MATIKAN SEMUA EFEK VISUAL (Mode Windows Klasik)
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
+
+        # 5. PRIORITAS CPU TINGGI UNTUK RDP & MATIKAN SERVICE BERAT
+        $perfKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\termsrv.exe\PerfOptions"
+        if (!(Test-Path $perfKey)) { New-Item -Path $perfKey -Force }
+        Set-ItemProperty -Path $perfKey -Name "CpuPriorityClass" -Value 3
+        
+        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler","Themes"
         foreach ($svc in $services) {
           Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
           Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
         }
-        # Visual effects -> performance
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x03,0x80,0x10,0x00,0x00,0x00))
+
+        # 6. TWEAK MTU & POWER PLAN
+        netsh interface ipv4 set subinterface "Ethernet" mtu=1400 store=persistent
+        powercfg /setactive SCHEME_MIN
+
+    - name: Setup User & RDP
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+
+    - name: Start Playit Tunnel
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
+        Start-Sleep -Seconds 10
+
+    - name: Keep Alive
+      run: |
+        Write-Output "RDP God Mode is Active! User: runneradmin | Pass: p@ssw0rd!"
+        while ($true) {
+          Get-Process playit -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 300
+        }
         # Network tweaks
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'MaxUserPort' -Value 65534
         Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpTimedWaitDelay' -Value 30
