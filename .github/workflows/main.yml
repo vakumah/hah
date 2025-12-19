@@ -74,26 +74,3 @@ jobs:
           Get-Process playit -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 300
         }
-        # Network tweaks
-        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'MaxUserPort' -Value 65534
-        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters' -Name 'TcpTimedWaitDelay' -Value 30
-        # Power mode High Performance
-        powercfg /setactive SCHEME_MIN
-        # Check RDP service
-        Start-Service TermService
-        Set-Service TermService -StartupType Automatic
-
-    - name: Start Playit Tunnel (Background)
-      env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
-      run: |
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
-        Start-Sleep -Seconds 10
-        Get-Process playit
-
-    - name: Keep GitHub Runner Alive
-      run: |
-        Write-Output "RDP + Playit is running... Keep Alive enabled."
-        while ($true) {
-          Start-Sleep -Seconds 300
-        }
