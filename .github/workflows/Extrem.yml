@@ -1,71 +1,88 @@
-name: Playit RDP Extreme Full Optimized
+name: Windows RDP Ultimate God Mode (V2 - Optimized)
 
 on:
   workflow_dispatch:
 
 jobs:
   setup-rdp-tunnel:
-    runs-on: windows-2025
+    runs-on: windows-latest
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v2
 
-    - name: Download Playit & Basic Setup
+    - name: Extreme Optimization (Defender, Bloatware & CPU)
       run: |
-        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        # 1. MATIKAN WINDOWS DEFENDER & FIREWALL (Biar CPU 100% buat RDP)
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Set-MpPreference -DisableBehaviorMonitoring $true
+        Set-MpPreference -DisableIOAVProtection $true
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
-    - name: Extreme System & Network Optimization
-      run: |
-        # 1. PAKSA COLOR DEPTH 16-BIT (Hemat Bandwidth)
+        # 2. HAPUS BLOATWARE (Optimasi Baru: Hemat RAM)
+        # Menghapus aplikasi bawaan yang jalan di background (Xbox, Maps, Bing, dll)
+        Write-Output "Removing Bloatware..."
+        Get-AppxPackage -AllUsers | Where-Object { $_.Name -match "Xbox|Solitaire|Bing|Maps|Zune|Cortana|Feedback|GetHelp" } | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+
+        # 3. TWEAK REGISTRY RDP (Tanpa Matikan Audio)
         $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
         if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 2
+        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3 # 3 = 16-bit (Ringan tapi warna masih oke)
         Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
+        
+        # Tweak Bitmap Caching agar gambar tidak patah-patah
+        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "fDisableClientLmbct" -Value 1
 
-        # 2. TCP LOW LATENCY (Hapus delay mouse/keyboard)
+        # 4. TCP LOW LATENCY (Ping Stabil)
         $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
         Get-ChildItem $tcpKey | ForEach-Object {
             New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
             New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
         }
 
-        # 3. MATIKAN SEMUA EFEK VISUAL (Mode Windows Klasik)
+        # 5. VISUAL PERFORMANCE (Mode Klasik)
         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'FontSmoothing' -Value 0
         Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value ""
         Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
 
-        # 4. OPTIMASI BROWSER (Matikan Hardware Acceleration)
-        # Agar buka web beranimasi tidak berat di internet lemah
-        $chromeReg = "HKLM:\SOFTWARE\Policies\Google\Chrome"
-        if (!(Test-Path $chromeReg)) { New-Item -Path $chromeReg -Force }
-        Set-ItemProperty -Path $chromeReg -Name "HardwareAccelerationModeEnabled" -Value 0
-
-        # 5. MATIKAN LAYANAN BERAT
-        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler"
+        # 6. PRIORITAS CPU & SERVICE CLEANUP
+        $perfKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\termsrv.exe\PerfOptions"
+        if (!(Test-Path $perfKey)) { New-Item -Path $perfKey -Force }
+        Set-ItemProperty -Path $perfKey -Name "CpuPriorityClass" -Value 3 # High Priority
+        
+        # Matikan service berat
+        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler","Themes","WerSvc"
         foreach ($svc in $services) {
           Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
           Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
         }
-        
-        # Power Profile: Performance
+
+        # 7. POWER PLAN & NETWORK
+        netsh interface ipv4 set subinterface "Ethernet" mtu=1400 store=persistent
         powercfg /setactive SCHEME_MIN
+
+    - name: Setup User & RDP Access
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        # Matikan NLA agar login lebih mudah
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
     - name: Start Playit Tunnel
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
+        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
         Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
         Start-Sleep -Seconds 10
+        Write-Output "Tunnel Started. Waiting for connection..."
 
-    - name: Final Check & Keep Alive
+    - name: Keep Alive (Infinity Loop)
       run: |
-        Write-Output "RDP Berhasil dioptimasi maksimal!"
-        Write-Output "User: runneradmin | Pass: p@ssw0rd!"
+        Write-Output "RDP God Mode Active! User: runneradmin | Pass: p@ssw0rd!"
+        Write-Output "Audio: ENABLED | Bloatware: REMOVED | Defender: DEAD"
         while ($true) {
           Get-Process playit -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 300
