@@ -1,76 +1,102 @@
-name: Windows RDP Ultimate God Mode (Zero Lag)
+name: Windows RDP Optimization V4
 
 on:
   workflow_dispatch:
 
 jobs:
-  setup-rdp-tunnel:
-    runs-on: windows-2025
+  infrastructure-setup:
+    runs-on: windows-latest
 
     steps:
-    - name: Checkout Repository
+    - name: Checkout Source
       uses: actions/checkout@v2
 
-    - name: Extreme Optimization (Defender, Network, & CPU)
+    - name: System Configuration & Visual Tuning
       run: |
-        # 1. MATIKAN WINDOWS DEFENDER & FIREWALL (Biar CPU 100% buat RDP)
+        # Disable Visual Effects for performance
+        $visKey = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
+
+        # Explorer Performance Settings
+        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
+        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
+        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
+        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
+
+        # Disable Hardware Acceleration
+        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
+        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
+        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
+
+    - name: Network & Protocol Optimization
+      run: |
+        # TCP/IP Stack Tuning
+        netsh int tcp set global congestionprovider=ctcp
+        netsh int tcp set global autotuninglevel=normal
+        netsh int tcp set global timestamps=disabled
+        fsutil behavior set disablelastaccess 1
+
+        # RDP Protocol Adjustments (Low Bandwidth)
+        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
+        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3
+        Set-ItemProperty -Path $rdpKey -Name "fDisableClientLmbct" -Value 1
+        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
+
+    - name: Service Management & Cleanup
+      run: |
+        # Security Policy Adjustments
         Set-MpPreference -DisableRealtimeMonitoring $true
         Set-MpPreference -DisableBehaviorMonitoring $true
         Set-MpPreference -DisableIOAVProtection $true
         Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
-        # 2. PAKSA COLOR DEPTH 16-BIT & LOW ENCRYPTION
-        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 2
-        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
-
-        # 3. TCP LOW LATENCY (Hapus delay mouse & keyboard)
-        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
-        Get-ChildItem $tcpKey | ForEach-Object {
-            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-        }
-
-        # 4. MATIKAN SEMUA EFEK VISUAL (Mode Windows Klasik)
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value ""
-        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
-
-        # 5. PRIORITAS CPU TINGGI UNTUK RDP & MATIKAN SERVICE BERAT
-        $perfKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\termsrv.exe\PerfOptions"
-        if (!(Test-Path $perfKey)) { New-Item -Path $perfKey -Force }
-        Set-ItemProperty -Path $perfKey -Name "CpuPriorityClass" -Value 3
-        
-        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler","Themes"
+        # Service Cleanup
+        $services = @("WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack")
         foreach ($svc in $services) {
-          Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
-          Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
         }
 
-        # 6. TWEAK MTU & POWER PLAN
-        netsh interface ipv4 set subinterface "Ethernet" mtu=1400 store=persistent
-        powercfg /setactive SCHEME_MIN
+        # Remove Provisioned Packages
+        Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
 
-    - name: Setup User & RDP
+    - name: User Account Configuration
       run: |
+        # Configure RDP Access
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        
+        # Set Credentials
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-    - name: Start Playit Tunnel
+    - name: Initialize Connection Tunnel
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
-        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
-        Start-Sleep -Seconds 10
+        # Download and Execute Agent
+        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
+        $agentPath = "$env:USERPROFILE\playit.exe"
+        Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
+        
+        $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
+        Start-Sleep -Seconds 5
+        
+        # Priority Adjustment
+        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
+        Write-Output "Connection established. Agent running with high priority."
 
-    - name: Keep Alive
+    - name: Session Maintenance
       run: |
-        Write-Output "RDP God Mode is Active! User: runneradmin | Pass: p@ssw0rd!"
         while ($true) {
-          Get-Process playit -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 300
+            $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
+            if (-not $check) {
+                Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
+            }
+            Start-Sleep -Seconds 300
         }
