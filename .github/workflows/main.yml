@@ -1,4 +1,4 @@
-name: Windows RDP Optimization V4
+name: Windows RDP Optimization V4 
 
 on:
   workflow_dispatch:
@@ -63,8 +63,8 @@ jobs:
             Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
         }
 
-        # Remove Provisioned Packages
-        Get-AppxPackage -AllUsers | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+        # Remove Provisioned Packages (Targeted removal to prevent Exit Code 1)
+        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
 
     - name: User Account Configuration
       run: |
