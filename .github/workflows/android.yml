@@ -1,106 +1,72 @@
-name: Windows RDP Optimization V4 - ARM Edition
+name: Windows-11-ARM-Android-Dev
 
 on:
   workflow_dispatch:
 
 jobs:
-  infrastructure-setup:
-    # Menggunakan Partner Runner ARM64 untuk performa lebih ngebut di 2026
+  development-android-app:
+    # Menggunakan Partner Runner ARM64 (Januari 2026)
     runs-on: windows-11-arm
+    timeout-minutes: 360
 
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v2
-
-    - name: System Configuration & Visual Tuning
+    - name: OS Visual & Bloatware Optimization
       run: |
-        # Disable Visual Effects for performance
-        $visKey = 'HKCU:\Control Panel\Desktop'
-        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
+        # Konfigurasi Performa: Mematikan Transparansi, Animasi, dan Widget
+        $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        Set-ItemProperty -Path $themeKey -Name 'EnableTransparency' -Value 0
+        
+        $visualKey = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $visualKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        
+        $taskbarKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+        Set-ItemProperty -Path $taskbarKey -Name 'TaskbarDa' -Value 0
 
-        # Explorer Performance Settings
-        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
-        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
+        # Mematikan Aplikasi Latar Belakang (UWP Apps)
+        $bgKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications'
+        Set-ItemProperty -Path $bgKey -Name 'GlobalUserDisabled' -Value 1
 
-        # Disable Hardware Acceleration
-        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
-        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
-        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
-
-    - name: Network & Protocol Optimization
+    - name: Security & Build Performance Optimization
       run: |
-        # TCP/IP Stack Tuning
-        netsh int tcp set global congestionprovider=ctcp
-        netsh int tcp set global autotuninglevel=normal
-        netsh int tcp set global timestamps=disabled
-        fsutil behavior set disablelastaccess 1
-
-        # RDP Protocol Adjustments (Low Bandwidth)
-        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3
-        Set-ItemProperty -Path $rdpKey -Name "fDisableClientLmbct" -Value 1
-        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
-
-    - name: Service Management & Cleanup
-      run: |
-        # Security Policy Adjustments
+        # Mematikan Windows Defender untuk mempercepat proses build Android/Gradle
         Set-MpPreference -DisableRealtimeMonitoring $true
         Set-MpPreference -DisableBehaviorMonitoring $true
-        Set-MpPreference -DisableIOAVProtection $true
+        
+        # Penyesuaian Firewall untuk akses remote
         Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
-        # Service Cleanup
-        $services = @("WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack")
-        foreach ($svc in $services) {
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
-        }
-
-        # Remove Provisioned Packages
-        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
-
-    - name: User Account Configuration
+    - name: Remote Desktop (RDP) Configuration
       run: |
-        # Configure RDP Access
+        # Mengaktifkan protokol RDP dan mematikan NLA untuk kemudahan koneksi
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
         
-        # Set Credentials (Updated to Use existing user logic)
-        net user runneradmin p@ssw0rd! /active:yes
+        # Konfigurasi kredensial user admin
+        net user runneradmin p@ssw0rd!
 
-    - name: Initialize Connection Tunnel
+    - name: Initialize Network Tunnel (Native ARM64)
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
-        # Download and Execute Agent
-        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
+        # Menggunakan Playit Agent versi Native ARM64 untuk efisiensi CPU maksimal
+        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-arm64.exe"
         $agentPath = "$env:USERPROFILE\playit.exe"
         Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
         
-        # Windows ARM will run this x86_64 binary via emulation
+        # Menjalankan tunnel dengan prioritas High
         $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
-        Start-Sleep -Seconds 5
-        
-        # Priority Adjustment
-        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-        Write-Output "Connection established on ARM Runner. Agent running with high priority."
+        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }
+        Write-Output "Android Dev Environment: Tunnel established via Native ARM64."
 
-    - name: Session Maintenance
+    - name: Keep-Live Session (6 Hours)
       run: |
-        # Development Android App - Keep Alive 6 Hours
-        while ($true) {
+        # Menjaga instance tetap berjalan selama 6 jam untuk aktivitas development
+        $endTime = (Get-Date).AddHours(6)
+        while ((Get-Date) -lt $endTime) {
             $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
             if (-not $check) {
                 Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
             }
-            Write-Output "Runner is active... $((Get-Date).ToString())"
+            Write-Output "Development Android App session is active... $((Get-Date).ToString())"
             Start-Sleep -Seconds 300
         }
