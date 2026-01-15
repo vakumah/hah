@@ -10,57 +10,66 @@ jobs:
     timeout-minutes: 360
 
     steps:
-    - name: OS Visual & Bloatware Optimization
+    - name: OS Visual & Performa Optimization
+      shell: pwsh
       run: |
-        # Konfigurasi Performa: Mematikan Transparansi, Animasi, dan Widget
+        # Menggunakan ErrorAction SilentlyContinue agar workflow tidak berhenti jika registry gagal
+        $ErrorActionPreference = "SilentlyContinue"
+
+        # Matikan Transparansi
         $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        if (!(Test-Path $themeKey)) { New-Item -Path $themeKey -Force }
         Set-ItemProperty -Path $themeKey -Name 'EnableTransparency' -Value 0
-        
+
+        # Matikan Animasi Desktop
         $visualKey = 'HKCU:\Control Panel\Desktop'
         Set-ItemProperty -Path $visualKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        
+
+        # Matikan Widget Taskbar (Penyebab error sebelumnya)
         $taskbarKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+        if (!(Test-Path $taskbarKey)) { New-Item -Path $taskbarKey -Force }
         Set-ItemProperty -Path $taskbarKey -Name 'TaskbarDa' -Value 0
 
-        # Mematikan Aplikasi Latar Belakang (UWP Apps)
+        # Matikan Aplikasi Latar Belakang
         $bgKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications'
+        if (!(Test-Path $bgKey)) { New-Item -Path $bgKey -Force }
         Set-ItemProperty -Path $bgKey -Name 'GlobalUserDisabled' -Value 1
 
     - name: Security & Build Performance Optimization
+      shell: pwsh
       run: |
-        # Mematikan Windows Defender untuk mempercepat proses build Android/Gradle
+        # Mematikan Windows Defender untuk mempercepat kompilasi Gradle/Android
         Set-MpPreference -DisableRealtimeMonitoring $true
         Set-MpPreference -DisableBehaviorMonitoring $true
         
-        # Penyesuaian Firewall untuk akses remote
+        # Buka Firewall untuk akses remote
         Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
 
     - name: Remote Desktop (RDP) Configuration
       run: |
-        # Mengaktifkan protokol RDP dan mematikan NLA untuk kemudahan koneksi
+        # Aktifkan RDP dan matikan NLA
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
         
-        # Konfigurasi kredensial user admin
+        # Update kredensial runneradmin
         net user runneradmin p@ssw0rd!
 
     - name: Initialize Network Tunnel (Native ARM64)
       env:
         PLAYIT_AUTH_KEY: ${{ secrets.PL }}
       run: |
-        # Menggunakan Playit Agent versi Native ARM64 untuk efisiensi CPU maksimal
+        # Menggunakan Playit Agent Native ARM64
         $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-arm64.exe"
         $agentPath = "$env:USERPROFILE\playit.exe"
         Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
         
-        # Menjalankan tunnel dengan prioritas High
         $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
         if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }
         Write-Output "Android Dev Environment: Tunnel established via Native ARM64."
 
     - name: Keep-Live Session (6 Hours)
+      shell: pwsh
       run: |
-        # Menjaga instance tetap berjalan selama 6 jam untuk aktivitas development
         $endTime = (Get-Date).AddHours(6)
         while ((Get-Date) -lt $endTime) {
             $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
