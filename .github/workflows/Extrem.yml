@@ -1,89 +1,38 @@
-name: Windows RDP Ultimate God Mode (V2 - Optimized)
-
-on:
-  workflow_dispatch:
+name: macOS GUI with Bore
+on: workflow_dispatch
 
 jobs:
-  setup-rdp-tunnel:
-    runs-on: windows-latest
-
+  gui-access:
+    runs-on: macos-latest
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v2
+      - name: Install Bore
+        run: |
+          brew install bore-cli
 
-    - name: Extreme Optimization (Defender, Bloatware & CPU)
-      run: |
-        # 1. MATIKAN WINDOWS DEFENDER & FIREWALL (Biar CPU 100% buat RDP)
-        Set-MpPreference -DisableRealtimeMonitoring $true
-        Set-MpPreference -DisableBehaviorMonitoring $true
-        Set-MpPreference -DisableIOAVProtection $true
-        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+      - name: Aktifkan Screen Sharing (VNC)
+        run: |
+          # Set password untuk user 'runner'
+          sudo dscl . -passwd /Users/runner Password123
+          
+          # Aktifkan Remote Management / Screen Sharing
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
 
-        # 2. HAPUS BLOATWARE (Optimasi Baru: Hemat RAM)
-        # Menghapus aplikasi bawaan yang jalan di background (Xbox, Maps, Bing, dll)
-        Write-Output "Removing Bloatware..."
-        Get-AppxPackage -AllUsers | Where-Object { $_.Name -match "Xbox|Solitaire|Bing|Maps|Zune|Cortana|Feedback|GetHelp" } | Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
-
-        # 3. TWEAK REGISTRY RDP (Tanpa Matikan Audio)
-        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3 # 3 = 16-bit (Ringan tapi warna masih oke)
-        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
-        
-        # Tweak Bitmap Caching agar gambar tidak patah-patah
-        Set-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services" -Name "fDisableClientLmbct" -Value 1
-
-        # 4. TCP LOW LATENCY (Ping Stabil)
-        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
-        Get-ChildItem $tcpKey | ForEach-Object {
-            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
-        }
-
-        # 5. VISUAL PERFORMANCE (Mode Klasik)
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name 'Wallpaper' -Value ""
-        Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects' -Name 'VisualFXSetting' -Value 2
-
-        # 6. PRIORITAS CPU & SERVICE CLEANUP
-        $perfKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\termsrv.exe\PerfOptions"
-        if (!(Test-Path $perfKey)) { New-Item -Path $perfKey -Force }
-        Set-ItemProperty -Path $perfKey -Name "CpuPriorityClass" -Value 3 # High Priority
-        
-        # Matikan service berat
-        $services = "WSearch","SysMain","DiagTrack","dmwappushservice","wuauserv","BITS","Spooler","Themes","WerSvc"
-        foreach ($svc in $services) {
-          Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
-          Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-        }
-
-        # 7. POWER PLAN & NETWORK
-        netsh interface ipv4 set subinterface "Ethernet" mtu=1400 store=persistent
-        powercfg /setactive SCHEME_MIN
-
-    - name: Setup User & RDP Access
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        # Matikan NLA agar login lebih mudah
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
-
-    - name: Start Playit Tunnel
-      env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
-      run: |
-        Invoke-WebRequest -Uri "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe" -OutFile "$env:USERPROFILE\playit.exe"
-        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden
-        Start-Sleep -Seconds 10
-        Write-Output "Tunnel Started. Waiting for connection..."
-
-    - name: Keep Alive (Infinity Loop)
-      run: |
-        Write-Output "RDP God Mode Active! User: runneradmin | Pass: p@ssw0rd!"
-        Write-Output "Audio: ENABLED | Bloatware: REMOVED | Defender: DEAD"
-        while ($true) {
-          Get-Process playit -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 300
-        }
+      - name: Jalankan Bore Tunnel
+        run: |
+          # Bore akan mem-forward port 5900 (VNC) ke server publik bore.pub
+          # Perintah ini dijalankan di background (&) agar langkah selanjutnya tetap jalan
+          bore local 5900 --to bore.pub & 
+          sleep 5
+          
+      - name: Informasi Koneksi
+        run: |
+          echo "================================================"
+          echo "Akses VNC Anda sedang disiapkan..."
+          echo "Gunakan VNC Viewer dengan detail berikut:"
+          echo "Host: bore.pub"
+          echo "Port: (Lihat di log Bore di atas)"
+          echo "Username: runner"
+          echo "Password: Password123"
+          echo "================================================"
+          # Menjaga agar session tetap hidup selama 6 jam
+          sleep 21600
