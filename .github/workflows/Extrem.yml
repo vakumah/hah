@@ -1,53 +1,51 @@
-name: macOS GUI Bypass Force
+name: macOS 13 GUI Force
 on: workflow_dispatch
 
 jobs:
   gui-access:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
-      - name: Install Network Tools
+      - name: Install Tools
         run: brew install bore-cli
 
-      - name: Force Bypass Setup
+      - name: Setup Remote Management
         run: |
-          # 1. Reset & Paksa Aktifkan ARD (Remote Management)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -deactivate -stop
+          # Aktifkan ARD dan VNC dengan Password Legacy
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users runner -privs -all -restart -agent
-          
-          # 2. Bypass VNC Login (Legacy Password)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
-
-          # 3. Disable Screen Lock & Sleep (Force)
-          sudo defaults write com.apple.loginwindow DisableScreenLock -bool true
-          sudo defaults write com.apple.screensaver idleTime 0
-          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
           
-          # 4. Ambil kepemilikan WindowServer (Bypass Black Screen)
-          sudo chown root:admin /Library/Preferences/com.apple.windowserver.plist || true
+          # Matikan Sleep dan Screen Saver agar layar tidak terkunci
+          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
+          sudo systemsetup -setsleep off > /dev/null 2>&1
+          sudo defaults write com.apple.screensaver idleTime 0
 
       - name: Start Tunnel
         run: |
+          # Jalankan Bore di port 5900 (VNC)
           bore local 5900 --to bore.pub &
           sleep 10
 
-      - name: Auto-Unlocker (The Bypass)
+      - name: Force Wake & Info
         run: |
-          echo "Bypass aktif... Menunggu koneksi VNC..."
-          echo "Host: bore.pub"
-          echo "VNC Password: Password123"
+          echo "================================================"
+          echo "IMAGE: macOS 13 (Ventura)"
+          echo "HOST: bore.pub"
+          echo "VNC PASSWORD: Password123"
+          echo "================================================"
           
-          # Loop ini akan memaksa sistem 'mengetik' password setiap 15 detik 
-          # untuk menjebol layar login yang hitam/stuck.
+          # Teknik pancingan agar WindowServer merender desktop
+          sudo launchctl kickstart -kp system/com.apple.WindowServer
+          
+          # Loop Auto-Unlocker: Mengetik password otomatis jika layar stuck hitam
           (while true; do
-            # Simulasi tekan Enter -> Ketik Password -> Enter
+            # Tekan Enter -> Ketik Password -> Enter
             osascript -e 'tell application "System Events" to key code 36'
             sleep 2
             osascript -e 'tell application "System Events" to keystroke "Password123"'
             sleep 2
             osascript -e 'tell application "System Events" to key code 36'
-            echo "Sent Force Unlock command..."
-            sleep 15
+            sleep 30
           done) &
           
-          # Menjaga runner aktif selama 6 jam
+          # Menjaga runner tetap aktif selama 6 jam
           sleep 21600
