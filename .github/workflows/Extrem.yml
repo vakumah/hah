@@ -1,4 +1,4 @@
-name: macOS GUI with Bore
+name: macOS GUI Force Runner
 on: workflow_dispatch
 
 jobs:
@@ -6,33 +6,31 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Install Bore
-        run: |
-          brew install bore-cli
+        run: brew install bore-cli
 
+      - name: Force Reset Password Runner
+        run: |
+          # Memaksa reset password user 'runner' tanpa minta password lama
+          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "Password123"
+          
       - name: Aktifkan Screen Sharing (VNC)
         run: |
-          # Set password untuk user 'runner'
-          sudo dscl . -passwd /Users/runner Password123
-          
-          # Aktifkan Remote Management / Screen Sharing
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all
+          # Aktifkan Remote Management
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all -allowAccessForAllUsers
 
       - name: Jalankan Bore Tunnel
         run: |
-          # Bore akan mem-forward port 5900 (VNC) ke server publik bore.pub
-          # Perintah ini dijalankan di background (&) agar langkah selanjutnya tetap jalan
+          # Forward port 5900 (VNC) ke server publik
           bore local 5900 --to bore.pub & 
           sleep 5
           
       - name: Informasi Koneksi
         run: |
           echo "================================================"
-          echo "Akses VNC Anda sedang disiapkan..."
-          echo "Gunakan VNC Viewer dengan detail berikut:"
+          echo "Cek log 'Jalankan Bore Tunnel' untuk melihat PORT"
           echo "Host: bore.pub"
-          echo "Port: (Lihat di log Bore di atas)"
           echo "Username: runner"
           echo "Password: Password123"
           echo "================================================"
-          # Menjaga agar session tetap hidup selama 6 jam
+          # Menjaga runner aktif 6 jam
           sleep 21600
