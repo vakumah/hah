@@ -1,34 +1,45 @@
-name: macOS GUI Final
+name: macOS GUI Fix Black Screen
 on: workflow_dispatch
 
 jobs:
   gui-access:
     runs-on: macos-latest
     steps:
-      - name: Install Bore
+      - name: Install Tools
         run: brew install bore-cli
 
       - name: Setup Remote Management
         run: |
+          # Aktifkan Remote Management & VNC Password
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
+
+      - name: Force Graphics & Resolution
+        run: |
+          # Paksa resolusi layar agar frame buffer aktif
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
           
-          # Mencegah sistem tertidur yang bikin layar hitam permanen
+          # Mencegah sistem tidur
           sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
           sudo systemsetup -setsleep off > /dev/null 2>&1
-          caffeinate -dim &
+          
+          # Trik pancingan: ambil screenshot untuk memaksa WindowServer menggambar
+          screencapture /tmp/test.png
 
       - name: Start Tunnel
         run: |
-          # Gunakan & agar berjalan di background
-          bore local 5900 --to bore.pub & 
+          bore local 5900 --to bore.pub &
           sleep 10
 
-      - name: Connection Info
+      - name: Keep Alive & Wake
         run: |
-          echo "================================================"
           echo "Host: bore.pub"
-          echo "Password VNC: Password123"
-          echo "================================================"
-          # Menjaga runner aktif tanpa memicu error 143
-          while true; do sleep 60; echo "Sesi aktif..."; done
+          echo "VNC Password: Password123"
+          # Simulasikan aktivitas keyboard (tombol Shift) setiap 30 detik untuk bangunkan layar
+          while true; do
+            osascript -e 'tell application "System Events" to key code 56' 
+            sleep 30
+            echo "Memancing layar tetap bangun..."
+          done
