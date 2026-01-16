@@ -8,10 +8,18 @@ jobs:
       - name: Install Bore
         run: brew install bore-cli
 
-      - name: Enable Remote Management
+      - name: Enable Remote Management & No Sleep
         run: |
+          # Aktifkan ARD dan VNC Legacy
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
+          
+          # Mencegah sistem tidur (sleep)
+          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
+          sudo systemsetup -setsleep off > /dev/null 2>&1
+          
+          # Jalankan caffeinate di background agar tetap bangun
+          caffeinate -is &
 
       - name: Start Tunnel
         run: |
@@ -22,4 +30,6 @@ jobs:
         run: |
           echo "Host: bore.pub"
           echo "VNC Password: Password123"
+          # Perintah untuk memancing GUI muncul
+          sudo launchctl kickstart -kp system/com.apple.WindowServer
           sleep 21600
