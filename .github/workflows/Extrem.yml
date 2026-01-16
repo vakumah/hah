@@ -1,27 +1,53 @@
-name: macOS 14 Standard GUI
+name: macOS GUI Ultimate Force
 on: workflow_dispatch
 
 jobs:
   gui-access:
-    runs-on: macos-14 # Menggunakan versi standar macOS Sonoma
+    runs-on: macos-14 # Mendukung Apple Silicon M1/M2 yang lebih cepat
     steps:
       - name: Install Tools
         run: brew install bore-cli
 
-      - name: Setup Remote Management
+      - name: Setup VNC Legacy (Bypass System User)
         run: |
+          # Aktifkan Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
+          
+          # Set VNC Password secara mandiri (Tidak pakai password user runner)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
-          caffeinate -dim &
+
+      - name: Force Render Display
+        run: |
+          # Paksa resolusi agar WindowServer memiliki buffer gambar
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
+          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
+          
+          # Matikan semua mode hemat daya
+          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
+          sudo systemsetup -setsleep off > /dev/null 2>&1
+          
+          # TRICK: Kill loginwindow untuk memaksa refresh tampilan (Bisa memperbaiki layar hitam)
+          sudo killall loginwindow || true
 
       - name: Start Tunnel
         run: |
           bore local 5900 --to bore.pub &
           sleep 10
 
-      - name: Keep Alive
+      - name: Auto Wake Script
         run: |
-          echo "Host: bore.pub"
-          echo "Password: Password123"
-          # Menjaga runner aktif hingga 6 jam
+          echo "Koneksi: bore.pub:PORT"
+          echo "VNC Pass: Password123"
+          
+          # Menjalankan caffeinate agar sistem tidak 'tidur' di background
+          caffeinate -dim &
+          
+          # Loop untuk memaksa input keyboard agar layar tetap bangun
+          (while true; do
+            # Tekan tombol 'Shift' (key code 56) setiap 15 detik
+            osascript -e 'tell application "System Events" to key code 56'
+            sleep 15
+          done) &
+          
           sleep 21600
