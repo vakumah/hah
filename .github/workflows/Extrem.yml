@@ -1,4 +1,4 @@
-name: macOS GUI Force Runner
+name: macOS GUI
 on: workflow_dispatch
 
 jobs:
@@ -8,29 +8,23 @@ jobs:
       - name: Install Bore
         run: brew install bore-cli
 
-      - name: Force Reset Password Runner
+      - name: Configure User
         run: |
-          # Memaksa reset password user 'runner' tanpa minta password lama
-          sudo sysadminctl -adminUser runner -adminPassword "" -resetPasswordFor runner -newPassword "Password123"
-          
-      - name: Aktifkan Screen Sharing (VNC)
+          sudo dscl . -passwd /Users/runner "" "Password123" || true
+          sudo osascript -e 'tell application "System Events" to set password of user "runner" to "Password123"' || true
+
+      - name: Enable Remote Management
         run: |
-          # Aktifkan Remote Management
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -restart -agent -privs -all -allowAccessForAllUsers
 
-      - name: Jalankan Bore Tunnel
+      - name: Start Tunnel
         run: |
-          # Forward port 5900 (VNC) ke server publik
           bore local 5900 --to bore.pub & 
           sleep 5
           
-      - name: Informasi Koneksi
+      - name: Connection Info
         run: |
-          echo "================================================"
-          echo "Cek log 'Jalankan Bore Tunnel' untuk melihat PORT"
           echo "Host: bore.pub"
-          echo "Username: runner"
-          echo "Password: Password123"
-          echo "================================================"
-          # Menjaga runner aktif 6 jam
+          echo "User: runner"
+          echo "Pass: Password123"
           sleep 21600
