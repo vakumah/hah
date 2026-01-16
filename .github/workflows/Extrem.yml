@@ -1,22 +1,17 @@
-name: macOS 14 Large GUI
+name: macOS 14 Standard GUI
 on: workflow_dispatch
 
 jobs:
   gui-access:
-    runs-on: macos-14-large
+    runs-on: macos-14 # Menggunakan versi standar macOS Sonoma
     steps:
-      - name: Install Bore
+      - name: Install Tools
         run: brew install bore-cli
 
       - name: Setup Remote Management
         run: |
-          # Aktifkan ARD dan VNC Legacy
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
-          
-          # Matikan Sleep secara total
-          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
-          sudo systemsetup -setsleep off > /dev/null 2>&1
           caffeinate -dim &
 
       - name: Start Tunnel
@@ -24,28 +19,9 @@ jobs:
           bore local 5900 --to bore.pub &
           sleep 10
 
-      - name: Force Render & Auto-Unlock
+      - name: Keep Alive
         run: |
-          echo "================================================"
-          echo "RUNNER: macOS 14 Large (Apple Silicon)"
-          echo "HOST: bore.pub"
-          echo "VNC PASSWORD: Password123"
-          echo "================================================"
-          
-          # Memancing WindowServer agar aktif di Apple Silicon
-          sudo launchctl kickstart -kp system/com.apple.WindowServer || true
-          
-          # Loop Auto-Unlocker untuk menjebol layar hitam
-          (while true; do
-            # Simulasi Enter -> Ketik Password -> Enter
-            osascript -e 'tell application "System Events" to key code 36'
-            sleep 2
-            osascript -e 'tell application "System Events" to keystroke "Password123"'
-            sleep 2
-            osascript -e 'tell application "System Events" to key code 36'
-            echo "Memancing GUI..."
-            sleep 20
-          done) &
-          
-          # Menjaga sesi tetap hidup 6 jam
+          echo "Host: bore.pub"
+          echo "Password: Password123"
+          # Menjaga runner aktif hingga 6 jam
           sleep 21600
