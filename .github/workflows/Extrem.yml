@@ -1,51 +1,51 @@
-name: macOS 13 GUI Force
+name: macOS 14 Large GUI
 on: workflow_dispatch
 
 jobs:
   gui-access:
-    runs-on: macos-13
+    runs-on: macos-14-large
     steps:
-      - name: Install Tools
+      - name: Install Bore
         run: brew install bore-cli
 
       - name: Setup Remote Management
         run: |
-          # Aktifkan ARD dan VNC dengan Password Legacy
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -users runner -privs -all -restart -agent
+          # Aktifkan ARD dan VNC Legacy
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
           
-          # Matikan Sleep dan Screen Saver agar layar tidak terkunci
+          # Matikan Sleep secara total
           sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
           sudo systemsetup -setsleep off > /dev/null 2>&1
-          sudo defaults write com.apple.screensaver idleTime 0
+          caffeinate -dim &
 
       - name: Start Tunnel
         run: |
-          # Jalankan Bore di port 5900 (VNC)
           bore local 5900 --to bore.pub &
           sleep 10
 
-      - name: Force Wake & Info
+      - name: Force Render & Auto-Unlock
         run: |
           echo "================================================"
-          echo "IMAGE: macOS 13 (Ventura)"
+          echo "RUNNER: macOS 14 Large (Apple Silicon)"
           echo "HOST: bore.pub"
           echo "VNC PASSWORD: Password123"
           echo "================================================"
           
-          # Teknik pancingan agar WindowServer merender desktop
-          sudo launchctl kickstart -kp system/com.apple.WindowServer
+          # Memancing WindowServer agar aktif di Apple Silicon
+          sudo launchctl kickstart -kp system/com.apple.WindowServer || true
           
-          # Loop Auto-Unlocker: Mengetik password otomatis jika layar stuck hitam
+          # Loop Auto-Unlocker untuk menjebol layar hitam
           (while true; do
-            # Tekan Enter -> Ketik Password -> Enter
+            # Simulasi Enter -> Ketik Password -> Enter
             osascript -e 'tell application "System Events" to key code 36'
             sleep 2
             osascript -e 'tell application "System Events" to keystroke "Password123"'
             sleep 2
             osascript -e 'tell application "System Events" to key code 36'
-            sleep 30
+            echo "Memancing GUI..."
+            sleep 20
           done) &
           
-          # Menjaga runner tetap aktif selama 6 jam
+          # Menjaga sesi tetap hidup 6 jam
           sleep 21600
