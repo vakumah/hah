@@ -1,4 +1,4 @@
-name: macOS GUI Stable
+name: macOS GUI Final
 on: workflow_dispatch
 
 jobs:
@@ -8,34 +8,27 @@ jobs:
       - name: Install Bore
         run: brew install bore-cli
 
-      - name: Setup Display and Remote Management
+      - name: Setup Remote Management
         run: |
-          # Aktifkan Remote Management dan VNC Password
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
           
-          # Pengaturan agar layar tidak tidur dan GUI tetap aktif
+          # Mencegah sistem tertidur yang bikin layar hitam permanen
           sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
           sudo systemsetup -setsleep off > /dev/null 2>&1
-          sudo caffeinate -is &
+          caffeinate -dim &
 
       - name: Start Tunnel
         run: |
-          # Jalankan tunnel untuk port 5900 (VNC)
-          bore local 5900 --to bore.pub &
-          sleep 5
+          # Gunakan & agar berjalan di background
+          bore local 5900 --to bore.pub & 
+          sleep 10
 
-      - name: Force Wake UI
+      - name: Connection Info
         run: |
-          # Memaksa WindowServer untuk me-render tampilan desktop
-          sudo launchctl kickstart -kp system/com.apple.WindowServer
-          
           echo "================================================"
-          echo "Akses VNC Anda sudah siap"
           echo "Host: bore.pub"
-          echo "Port: (Cek di log Start Tunnel)"
-          echo "VNC Password: Password123"
+          echo "Password VNC: Password123"
           echo "================================================"
-          
-          # Menjaga runner tetap aktif selama 6 jam
-          sleep 21600
+          # Menjaga runner aktif tanpa memicu error 143
+          while true; do sleep 60; echo "Sesi aktif..."; done
