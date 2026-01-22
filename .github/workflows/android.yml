@@ -1,106 +1,37 @@
-name: Windows RDP Optimization V4 - ARM Edition
+name: RDP Direct Connection Experiment (Proof of Concept)
 
 on:
   workflow_dispatch:
 
 jobs:
-  infrastructure-setup:
-    # Menggunakan Partner Runner ARM64 untuk performa lebih ngebut di 2026
-    runs-on: windows-11-arm
-
+  experiment:
+    runs-on: windows-latest
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v2
-
-    - name: System Configuration & Visual Tuning
+    - name: 1. Aktifkan RDP di System
       run: |
-        # Disable Visual Effects for performance
-        $visKey = 'HKCU:\Control Panel\Desktop'
-        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
-
-        # Explorer Performance Settings
-        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
-        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
-
-        # Disable Hardware Acceleration
-        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
-        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
-        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
-
-    - name: Network & Protocol Optimization
-      run: |
-        # TCP/IP Stack Tuning
-        netsh int tcp set global congestionprovider=ctcp
-        netsh int tcp set global autotuninglevel=normal
-        netsh int tcp set global timestamps=disabled
-        fsutil behavior set disablelastaccess 1
-
-        # RDP Protocol Adjustments (Low Bandwidth)
-        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3
-        Set-ItemProperty -Path $rdpKey -Name "fDisableClientLmbct" -Value 1
-        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
-
-    - name: Service Management & Cleanup
-      run: |
-        # Security Policy Adjustments
-        Set-MpPreference -DisableRealtimeMonitoring $true
-        Set-MpPreference -DisableBehaviorMonitoring $true
-        Set-MpPreference -DisableIOAVProtection $true
-        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-
-        # Service Cleanup
-        $services = @("WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack")
-        foreach ($svc in $services) {
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
-        }
-
-        # Remove Provisioned Packages
-        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
-
-    - name: User Account Configuration
-      run: |
-        # Configure RDP Access
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
         Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-        
-        # Set Credentials (Updated to Use existing user logic)
-        net user runneradmin p@ssw0rd! /active:yes
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-    - name: Initialize Connection Tunnel
-      env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+    - name: 2. Buka Port 3389 di Firewall Windows
       run: |
-        # Download and Execute Agent
-        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
-        $agentPath = "$env:USERPROFILE\playit.exe"
-        Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
-        
-        # Windows ARM will run this x86_64 binary via emulation
-        $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
-        Start-Sleep -Seconds 5
-        
-        # Priority Adjustment
-        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-        Write-Output "Connection established on ARM Runner. Agent running with high priority."
+        # Memastikan port 3389 benar-benar open di firewall lokal VM
+        New-NetFirewallRule -DisplayName "Allow RDP" -Direction Inbound -LocalPort 3389 -Protocol TCP -Action Allow
 
-    - name: Session Maintenance
+    - name: 3. Setup User & Password
       run: |
-        # Development Android App - Keep Alive 6 Hours
-        while ($true) {
-            $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
-            if (-not $check) {
-                Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
-            }
-            Write-Output "Runner is active... $((Get-Date).ToString())"
-            Start-Sleep -Seconds 300
-        }
+        $Password = ConvertTo-SecureString "p@ssw0rd!123" -AsPlainText -Force
+        Set-LocalUser -Name "runneradmin" -Password $Password
+
+    - name: 4. Cari Tahu IP Public & Info Port
+      run: |
+        $ip = (Invoke-RestMethod -Uri "https://api.ipify.org")
+        Write-Host "========================================="
+        Write-Host "IP PUBLIC RUNNER: $ip"
+        Write-Host "PORT RDP: 3389"
+        Write-Host "USER: runneradmin"
+        Write-Host "PASS: p@ssw0rd!123"
+        Write-Host "========================================="
+        Write-Host "Coba konek pake Remote Desktop (MSTSC) ke IP di atas."
+        Write-Host "Gua bakal nunggu 10 menit sebelum mati..."
+        Start-Sleep -Seconds 600
