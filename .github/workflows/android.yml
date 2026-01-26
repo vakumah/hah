@@ -1,4 +1,4 @@
-name: Android development
+name: Windows Android Development
 
 on:
   workflow_dispatch:
@@ -13,9 +13,16 @@ jobs:
     - name: System Performance
       run: |
         powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-        wmic computersystem where name="%computername%" set AutomaticManagedPagefile=False
-        wmic pagefileset where name="C:\\pagefile.sys" set InitialSize=8192,MaximumSize=8192
         
+        # Pengganti WMIC untuk Pagefile (Windows 2025 Compatible)
+        Set-CimInstance -Query "Select * from Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$False}
+        $pagefile = Get-CimInstance -ClassName Win32_PageFileSetting
+        if ($pagefile) {
+            Set-CimInstance -InputObject $pagefile -Property @{InitialSize=8192; MaximumSize=8192}
+        } else {
+            New-CimInstance -ClassName Win32_PageFileSetting -Property @{Name="C:\pagefile.sys"; InitialSize=8192; MaximumSize=8192}
+        }
+
         $visKey = 'HKCU:\Control Panel\Desktop'
         Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
         Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
