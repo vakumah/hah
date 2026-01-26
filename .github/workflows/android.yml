@@ -1,118 +1,87 @@
-name: Windows RDP Optimization V5 (Extreme Low Latency)
+name: Android development
 
 on:
   workflow_dispatch:
 
 jobs:
-  infrastructure-setup:
+  setup:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v2
 
-    - name: Extreme System & Visual Tuning
+    - name: System Performance
       run: |
-        # Force High Performance Power Plan
         powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
-
-        # Disable Visual Effects for performance
+        wmic computersystem where name="%computername%" set AutomaticManagedPagefile=False
+        wmic pagefileset where name="C:\\pagefile.sys" set InitialSize=8192,MaximumSize=8192
+        
         $visKey = 'HKCU:\Control Panel\Desktop'
         Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
         Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
         Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
 
-        # Explorer Performance & Animation Removal
-        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
-        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
-        
-        # Disable Hardware Acceleration
-        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
-        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
-        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
-
-    - name: Network Stack & TCP Tuning (Anti-Lag)
+    - name: Network Tuning
       run: |
-        # TCP/IP Stack Optimization
-        netsh int tcp set global congestionprovider=ctcp
+        netsh int tcp set global rss=enabled
         netsh int tcp set global autotuninglevel=normal
-        netsh int tcp set global timestamps=disabled
-        netsh int tcp set global initialrto=2000
-        fsutil behavior set disablelastaccess 1
-
-        # Disable Nagle's Algorithm (TCP No Delay)
-        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
-        Get-ChildItem $tcpKey | ForEach-Object {
+        
+        $tcp = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        Get-ChildItem $tcp | ForEach-Object {
             New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
             New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
         }
 
-    - name: Aggressive Service & Bloatware Cleanup
+    - name: Android Build Config
       run: |
-        # Security Policy Adjustments (Free up CPU)
+        $gDir = "$env:USERPROFILE\.gradle"
+        if (!(Test-Path $gDir)) { New-Item -Path $gDir -ItemType Directory }
+        
+        @"
+        org.gradle.daemon=true
+        org.gradle.parallel=true
+        org.gradle.configureondemand=true
+        org.gradle.workers.max=4
+        org.gradle.jvmargs=-Xmx10g -XX:+UseParallelGC -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8
+        "@ | Out-File -FilePath "$gDir\gradle.properties" -Encoding ascii
+        
+        [Environment]::SetEnvironmentVariable("JAVA_OPTS", "-Xmx10g", "Machine")
+
+    - name: Security & Services
+      run: |
         Set-MpPreference -DisableRealtimeMonitoring $true
         Set-MpPreference -DisableBehaviorMonitoring $true
-        Set-MpPreference -DisableIOAVProtection $true
-        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-
-        # Stop & Disable Bloat Services
-        $services = @(
-            "WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", 
-            "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack",
-            "dmwappushservice", "OneSyncSvc", "MessagingService", "PimIndexMaintenanceSvc"
-        )
-        foreach ($svc in $services) {
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+        
+        $svcs = @("WSearch", "SysMain", "wuauserv", "BITS", "Themes", "WerSvc")
+        foreach ($s in $svcs) {
+            Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
+            Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
         }
 
-        # Targeted Appx Removal
-        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
-
-    - name: RDP Policy & User Configuration
+    - name: RDP Setup
       run: |
-        # Enable RDP & Optimization Policies
-        $tsKey = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
-        Set-ItemProperty -Path $tsKey -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path "$tsKey\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
-        
-        # RDP Performance Registry
-        $rdpPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpPol)) { New-Item -Path $rdpPol -Force }
-        Set-ItemProperty -Path $rdpPol -Name "ColorDepth" -Value 3
-        Set-ItemProperty -Path $rdpPol -Name "fDisableClientLmbct" -Value 1
-        Set-ItemProperty -Path $rdpPol -Name "MinEncryptionLevel" -Value 1
-        Set-ItemProperty -Path $rdpPol -Name "fDisableCursorShadow" -Value 1
-
-        # Set Runner Password
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-    - name: Initialize Connection Tunnel
+    - name: Tunnel
       env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+        PL_KEY: ${{ secrets.PL }}
       run: |
-        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
-        $agentPath = "$env:USERPROFILE\playit.exe"
-        Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
-        
-        $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
+        $url = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
+        Invoke-WebRequest -Uri $url -OutFile "$env:USERPROFILE\playit.exe"
+        $p = Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PL_KEY" -WindowStyle Hidden -PassThru
         Start-Sleep -Seconds 5
-        
-        # Set Process Priority to RealTime for Tunnel
-        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-        Write-Output "Connection established. Optimization V5 Applied."
+        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
 
-    - name: Session Maintenance
+    - name: Keep Alive
       run: |
         while ($true) {
-            $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
-            if (-not $check) {
+            $j = Get-Process -Name "java" -ErrorAction SilentlyContinue
+            if ($j) { $j.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }
+            
+            if (!(Get-Process -Name "playit" -ErrorAction SilentlyContinue)) {
                 Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
             }
-            Start-Sleep -Seconds 300
+            Start-Sleep -Seconds 60
         }
