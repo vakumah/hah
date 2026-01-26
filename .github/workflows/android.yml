@@ -14,7 +14,7 @@ jobs:
       run: |
         powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
         
-        # Pengganti WMIC untuk Pagefile (Windows 2025 Compatible)
+        # CIM/PowerShell for Pagefile
         Set-CimInstance -Query "Select * from Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$False}
         $pagefile = Get-CimInstance -ClassName Win32_PageFileSetting
         if ($pagefile) {
@@ -23,10 +23,19 @@ jobs:
             New-CimInstance -ClassName Win32_PageFileSetting -Property @{Name="C:\pagefile.sys"; InitialSize=8192; MaximumSize=8192}
         }
 
-        $visKey = 'HKCU:\Control Panel\Desktop'
-        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
+        # Matikan Wallpaper dan Efek Visual secara total
+        $desktop = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $desktop -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path $desktop -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path $desktop -Name 'MenuShowDelay' -Value 0
+        Set-ItemProperty -Path $desktop -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path $desktop -Name 'DragFullWindows' -Value 0
         Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
+
+        # Force Best Performance Mode
+        $vis = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'
+        if (!(Test-Path $vis)) { New-Item -Path $vis -Force }
+        Set-ItemProperty -Path $vis -Name 'VisualFXSetting' -Value 2
 
     - name: Network Tuning
       run: |
@@ -59,16 +68,26 @@ jobs:
         Set-MpPreference -DisableRealtimeMonitoring $true
         Set-MpPreference -DisableBehaviorMonitoring $true
         
-        $svcs = @("WSearch", "SysMain", "wuauserv", "BITS", "Themes", "WerSvc")
+        $svcs = @("WSearch", "SysMain", "wuauserv", "BITS", "Themes", "WerSvc", "ShellHWDetection")
         foreach ($s in $svcs) {
             Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
             Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
         }
 
-    - name: RDP Setup
+    - name: RDP Low Latency Setup
       run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        $ts = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
+        Set-ItemProperty -Path $ts -Name "fDenyTSConnections" -Value 0
+        Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
+        
+        # Paksa 16-bit color (hilangkan HD) & Matikan fitur berat
+        $rdpPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpPol)) { New-Item -Path $rdpPol -Force }
+        Set-ItemProperty -Path $rdpPol -Name "ColorDepth" -Value 3
+        Set-ItemProperty -Path $rdpPol -Name "fDisableCursorShadow" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableMenuAnims" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableThemes" -Value 1
+        
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
     - name: Tunnel
