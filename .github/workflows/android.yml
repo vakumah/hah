@@ -1,37 +1,118 @@
-name: RDP Direct Connection Experiment (Proof of Concept)
+name: Windows RDP Optimization V5 (Extreme Low Latency)
 
 on:
   workflow_dispatch:
 
 jobs:
-  experiment:
+  infrastructure-setup:
     runs-on: windows-latest
+
     steps:
-    - name: 1. Aktifkan RDP di System
-      run: |
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+    - name: Checkout Source
+      uses: actions/checkout@v2
 
-    - name: 2. Buka Port 3389 di Firewall Windows
+    - name: Extreme System & Visual Tuning
       run: |
-        # Memastikan port 3389 benar-benar open di firewall lokal VM
-        New-NetFirewallRule -DisplayName "Allow RDP" -Direction Inbound -LocalPort 3389 -Protocol TCP -Action Allow
+        # Force High Performance Power Plan
+        powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
 
-    - name: 3. Setup User & Password
-      run: |
-        $Password = ConvertTo-SecureString "p@ssw0rd!123" -AsPlainText -Force
-        Set-LocalUser -Name "runneradmin" -Password $Password
+        # Disable Visual Effects for performance
+        $visKey = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
 
-    - name: 4. Cari Tahu IP Public & Info Port
+        # Explorer Performance & Animation Removal
+        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
+        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
+        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
+        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
+        
+        # Disable Hardware Acceleration
+        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
+        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
+        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
+
+    - name: Network Stack & TCP Tuning (Anti-Lag)
       run: |
-        $ip = (Invoke-RestMethod -Uri "https://api.ipify.org")
-        Write-Host "========================================="
-        Write-Host "IP PUBLIC RUNNER: $ip"
-        Write-Host "PORT RDP: 3389"
-        Write-Host "USER: runneradmin"
-        Write-Host "PASS: p@ssw0rd!123"
-        Write-Host "========================================="
-        Write-Host "Coba konek pake Remote Desktop (MSTSC) ke IP di atas."
-        Write-Host "Gua bakal nunggu 10 menit sebelum mati..."
-        Start-Sleep -Seconds 600
+        # TCP/IP Stack Optimization
+        netsh int tcp set global congestionprovider=ctcp
+        netsh int tcp set global autotuninglevel=normal
+        netsh int tcp set global timestamps=disabled
+        netsh int tcp set global initialrto=2000
+        fsutil behavior set disablelastaccess 1
+
+        # Disable Nagle's Algorithm (TCP No Delay)
+        $tcpKey = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        Get-ChildItem $tcpKey | ForEach-Object {
+            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+        }
+
+    - name: Aggressive Service & Bloatware Cleanup
+      run: |
+        # Security Policy Adjustments (Free up CPU)
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Set-MpPreference -DisableBehaviorMonitoring $true
+        Set-MpPreference -DisableIOAVProtection $true
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+
+        # Stop & Disable Bloat Services
+        $services = @(
+            "WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", 
+            "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack",
+            "dmwappushservice", "OneSyncSvc", "MessagingService", "PimIndexMaintenanceSvc"
+        )
+        foreach ($svc in $services) {
+            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
+            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+        }
+
+        # Targeted Appx Removal
+        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
+
+    - name: RDP Policy & User Configuration
+      run: |
+        # Enable RDP & Optimization Policies
+        $tsKey = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
+        Set-ItemProperty -Path $tsKey -Name "fDenyTSConnections" -Value 0
+        Set-ItemProperty -Path "$tsKey\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
+        
+        # RDP Performance Registry
+        $rdpPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpPol)) { New-Item -Path $rdpPol -Force }
+        Set-ItemProperty -Path $rdpPol -Name "ColorDepth" -Value 3
+        Set-ItemProperty -Path $rdpPol -Name "fDisableClientLmbct" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "MinEncryptionLevel" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableCursorShadow" -Value 1
+
+        # Set Runner Password
+        Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
+
+    - name: Initialize Connection Tunnel
+      env:
+        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+      run: |
+        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
+        $agentPath = "$env:USERPROFILE\playit.exe"
+        Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
+        
+        $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
+        Start-Sleep -Seconds 5
+        
+        # Set Process Priority to RealTime for Tunnel
+        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
+        Write-Output "Connection established. Optimization V5 Applied."
+
+    - name: Session Maintenance
+      run: |
+        while ($true) {
+            $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
+            if (-not $check) {
+                Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
+            }
+            Start-Sleep -Seconds 300
+        }
