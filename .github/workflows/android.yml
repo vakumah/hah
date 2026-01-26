@@ -1,4 +1,4 @@
-name: Windows Android Development
+name: Windows RDP Optimization V7.2
 
 on:
   workflow_dispatch:
@@ -16,7 +16,7 @@ jobs:
         
         # CIM/PowerShell for Pagefile
         Set-CimInstance -Query "Select * from Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$False}
-        $pagefile = Get-CimInstance -ClassName Win32_PageFileSetting
+        $pagefile = Get-CimInstance -ClassName Win32_PageFileSetting -ErrorAction SilentlyContinue
         if ($pagefile) {
             Set-CimInstance -InputObject $pagefile -Property @{InitialSize=8192; MaximumSize=8192}
         } else {
@@ -80,7 +80,6 @@ jobs:
         Set-ItemProperty -Path $ts -Name "fDenyTSConnections" -Value 0
         Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
         
-        # Paksa 16-bit color (hilangkan HD) & Matikan fitur berat
         $rdpPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
         if (!(Test-Path $rdpPol)) { New-Item -Path $rdpPol -Force }
         Set-ItemProperty -Path $rdpPol -Name "ColorDepth" -Value 3
@@ -98,16 +97,27 @@ jobs:
         Invoke-WebRequest -Uri $url -OutFile "$env:USERPROFILE\playit.exe"
         $p = Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PL_KEY" -WindowStyle Hidden -PassThru
         Start-Sleep -Seconds 5
-        if ($p) { $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
+        # Perbaikan: Cek apakah objek proses valid sebelum set priority
+        if ($p -and $p.GetType().FullName -eq 'System.Diagnostics.Process') {
+            $p.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime
+        }
 
     - name: Keep Alive
       run: |
         while ($true) {
-            $j = Get-Process -Name "java" -ErrorAction SilentlyContinue
-            if ($j) { $j.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High }
+            # Perbaikan: Gunakan foreach untuk menangani jika ada banyak proses java
+            $javaProcesses = Get-Process -Name "java" -ErrorAction SilentlyContinue
+            foreach ($proc in $javaProcesses) {
+                if ($proc -and $proc.GetType().FullName -eq 'System.Diagnostics.Process') {
+                    $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::High
+                }
+            }
             
+            # Cek apakah playit masih jalan
             if (!(Get-Process -Name "playit" -ErrorAction SilentlyContinue)) {
                 Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
             }
+            
+            Write-Host "Monitoring... (CPU & Connection OK)"
             Start-Sleep -Seconds 60
         }
