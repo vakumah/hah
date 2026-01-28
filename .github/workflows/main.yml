@@ -1,4 +1,4 @@
-name: Windows RDP Optimization V7.3
+name: Windows RDP Optimization V7.4
 
 on:
   workflow_dispatch:
@@ -58,6 +58,11 @@ jobs:
         
         # Disable memory compression
         Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue
+        
+        # Clean temp files
+        Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path "C:\Windows\Prefetch\*" -Recurse -Force -ErrorAction SilentlyContinue
 
     - name: Network Tuning
       run: |
@@ -68,6 +73,12 @@ jobs:
         
         # Enable Direct Cache Access
         netsh int tcp set global dca=enabled
+        
+        # Use Cloudflare DNS (faster resolution)
+        $adapters = Get-NetAdapter | Where-Object {$_.Status -eq 'Up'}
+        foreach ($adapter in $adapters) {
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.ifIndex -ServerAddresses ("1.1.1.1","1.0.0.1") -ErrorAction SilentlyContinue
+        }
         
         # Disable Windows Firewall (faster network)
         Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
@@ -142,6 +153,117 @@ jobs:
         
         # Disable Scheduled Tasks
         Get-ScheduledTask -TaskPath '\Microsoft\Windows\*' | Where-Object {$_.State -ne 'Disabled'} | Disable-ScheduledTask -ErrorAction SilentlyContinue
+
+    - name: Dark Mode & UI
+      run: |
+        # Enable Dark Mode
+        $themes = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        if (!(Test-Path $themes)) { New-Item -Path $themes -Force }
+        Set-ItemProperty -Path $themes -Name 'AppsUseLightTheme' -Value 0
+        Set-ItemProperty -Path $themes -Name 'SystemUsesLightTheme' -Value 0
+        
+        # Disable transparency
+        Set-ItemProperty -Path $themes -Name 'EnableTransparency' -Value 0
+        
+        # Disable Notifications
+        $notif = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications'
+        if (!(Test-Path $notif)) { New-Item -Path $notif -Force }
+        Set-ItemProperty -Path $notif -Name 'ToastEnabled' -Value 0
+        
+        # Disable Action Center
+        $explorer = 'HKCU:\SOFTWARE\Policies\Microsoft\Windows\Explorer'
+        if (!(Test-Path $explorer)) { New-Item -Path $explorer -Force }
+        Set-ItemProperty -Path $explorer -Name 'DisableNotificationCenter' -Value 1
+        
+        # Disable Cortana
+        $cortana = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Windows Search'
+        if (!(Test-Path $cortana)) { New-Item -Path $cortana -Force }
+        Set-ItemProperty -Path $cortana -Name 'AllowCortana' -Value 0
+
+    - name: Game Mode & GPU Priority
+      run: |
+        # Enable Game Mode
+        $gameMode = 'HKCU:\SOFTWARE\Microsoft\GameBar'
+        if (!(Test-Path $gameMode)) { New-Item -Path $gameMode -Force }
+        Set-ItemProperty -Path $gameMode -Name 'AllowAutoGameMode' -Value 1
+        Set-ItemProperty -Path $gameMode -Name 'AutoGameModeEnabled' -Value 1
+        
+        # GPU Priority for better graphics
+        $gpu = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile'
+        Set-ItemProperty -Path $gpu -Name 'SystemResponsiveness' -Value 0
+        Set-ItemProperty -Path $gpu -Name 'NetworkThrottlingIndex' -Value 0xFFFFFFFF
+        
+        # GPU Scheduling
+        $gpuTask = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile\Tasks\Games'
+        if (!(Test-Path $gpuTask)) { New-Item -Path $gpuTask -Force }
+        Set-ItemProperty -Path $gpuTask -Name 'GPU Priority' -Value 8
+        Set-ItemProperty -Path $gpuTask -Name 'Priority' -Value 6
+        Set-ItemProperty -Path $gpuTask -Name 'Scheduling Category' -Value 'High'
+        Set-ItemProperty -Path $gpuTask -Name 'SFIO Priority' -Value 'High'
+
+    - name: Input Lag Reduction
+      run: |
+        # Mouse optimization
+        $mouse = 'HKCU:\Control Panel\Mouse'
+        Set-ItemProperty -Path $mouse -Name 'MouseSpeed' -Value 0
+        Set-ItemProperty -Path $mouse -Name 'MouseThreshold1' -Value 0
+        Set-ItemProperty -Path $mouse -Name 'MouseThreshold2' -Value 0
+        Set-ItemProperty -Path $mouse -Name 'MouseSensitivity' -Value 10
+        
+        # Keyboard optimization
+        $keyboard = 'HKCU:\Control Panel\Keyboard'
+        Set-ItemProperty -Path $keyboard -Name 'KeyboardDelay' -Value 0
+        Set-ItemProperty -Path $keyboard -Name 'KeyboardSpeed' -Value 31
+        
+        # Reduce input buffer
+        $input = 'HKLM:\SYSTEM\CurrentControlSet\Services\mouclass\Parameters'
+        Set-ItemProperty -Path $input -Name 'MouseDataQueueSize' -Value 0x10 -ErrorAction SilentlyContinue
+        $kbInput = 'HKLM:\SYSTEM\CurrentControlSet\Services\kbdclass\Parameters'
+        Set-ItemProperty -Path $kbInput -Name 'KeyboardDataQueueSize' -Value 0x10 -ErrorAction SilentlyContinue
+
+    - name: Memory Optimization
+      run: |
+        # Large System Cache
+        $memory = 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management'
+        Set-ItemProperty -Path $memory -Name 'LargeSystemCache' -Value 0
+        Set-ItemProperty -Path $memory -Name 'DisablePagingExecutive' -Value 1
+        Set-ItemProperty -Path $memory -Name 'ClearPageFileAtShutdown' -Value 0
+        
+        # Optimize working set
+        Set-ItemProperty -Path $memory -Name 'SystemPages' -Value 0
+        
+        # NDU (Network Data Usage) - causes memory leak
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\ControlSet001\Services\Ndu' -Name 'Start' -Value 4 -ErrorAction SilentlyContinue
+
+    - name: Taskbar Customization
+      run: |
+        # Move Taskbar to Top (Windows 11 / Server 2025)
+        $regPath = "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StuckRects3"
+        
+        # Get current settings
+        $settings = (Get-ItemProperty -Path $regPath -Name Settings -ErrorAction SilentlyContinue).Settings
+        
+        if ($settings) {
+            # Byte 12 controls position: 00=Left, 01=Top, 02=Right, 03=Bottom
+            $settings[12] = 0x01  # Set to Top
+            Set-ItemProperty -Path $regPath -Name Settings -Value $settings
+        } else {
+            # Create default settings with taskbar at top
+            $defaultSettings = @(
+                0x30,0x00,0x00,0x00,0xFE,0xFF,0xFF,0xFF,
+                0x02,0x00,0x00,0x00,0x01,0x00,0x00,0x00,  # Byte 12 = 0x01 (Top)
+                0x3E,0x00,0x00,0x00,0x2E,0x00,0x00,0x00,
+                0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+                0x80,0x07,0x00,0x00,0x30,0x00,0x00,0x00
+            )
+            if (!(Test-Path $regPath)) { New-Item -Path $regPath -Force }
+            Set-ItemProperty -Path $regPath -Name Settings -Value ([byte[]]$defaultSettings)
+        }
+        
+        # Restart Explorer to apply changes
+        Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        Start-Process explorer
 
     - name: RDP Low Latency Setup
       run: |
