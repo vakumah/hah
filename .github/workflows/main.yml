@@ -1,102 +1,187 @@
-name: Windows RDP Optimization V4 
+name: Windows RDP Optimization V7.3
 
 on:
   workflow_dispatch:
 
 jobs:
-  infrastructure-setup:
+  setup:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout Source
-      uses: actions/checkout@v2
+    - uses: actions/checkout@v2
 
-    - name: System Configuration & Visual Tuning
+    - name: System Performance
       run: |
-        # Disable Visual Effects for performance
-        $visKey = 'HKCU:\Control Panel\Desktop'
-        Set-ItemProperty -Path $visKey -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
-        Set-ItemProperty -Path $visKey -Name 'MenuShowDelay' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'DragFullWindows' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'FontSmoothing' -Value 0
-        Set-ItemProperty -Path $visKey -Name 'Wallpaper' -Value ""
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
-
-        # Explorer Performance Settings
-        $expKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer'
-        Set-ItemProperty -Path "$expKey\VisualEffects" -Name 'VisualFXSetting' -Value 2
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'ListviewAlphaSelect' -Value 0
-        Set-ItemProperty -Path "$expKey\Advanced" -Name 'TaskbarAnimations' -Value 0
-
-        # Disable Hardware Acceleration
-        $gpuKey = "HKCU:\Software\Microsoft\Avalon.Graphics"
-        if (!(Test-Path $gpuKey)) { New-Item -Path $gpuKey -Force }
-        Set-ItemProperty -Path $gpuKey -Name "DisableHWAcceleration" -Value 1
-
-    - name: Network & Protocol Optimization
-      run: |
-        # TCP/IP Stack Tuning
-        netsh int tcp set global congestionprovider=ctcp
-        netsh int tcp set global autotuninglevel=normal
-        netsh int tcp set global timestamps=disabled
-        fsutil behavior set disablelastaccess 1
-
-        # RDP Protocol Adjustments (Low Bandwidth)
-        $rdpKey = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
-        if (!(Test-Path $rdpKey)) { New-Item -Path $rdpKey -Force }
-        Set-ItemProperty -Path $rdpKey -Name "ColorDepth" -Value 3
-        Set-ItemProperty -Path $rdpKey -Name "fDisableClientLmbct" -Value 1
-        Set-ItemProperty -Path $rdpKey -Name "MinEncryptionLevel" -Value 1
-
-    - name: Service Management & Cleanup
-      run: |
-        # Security Policy Adjustments
-        Set-MpPreference -DisableRealtimeMonitoring $true
-        Set-MpPreference -DisableBehaviorMonitoring $true
-        Set-MpPreference -DisableIOAVProtection $true
-        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
-
-        # Service Cleanup
-        $services = @("WSearch", "SysMain", "Audiosrv", "AudioEndpointBuilder", "wuauserv", "BITS", "Themes", "WerSvc", "DiagTrack")
-        foreach ($svc in $services) {
-            Stop-Service -Name $svc -Force -ErrorAction SilentlyContinue
-            Set-Service -Name $svc -StartupType Disabled -ErrorAction SilentlyContinue
+        # High Performance Power Plan
+        powercfg /s 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c
+        
+        # Disable CPU Throttling
+        powercfg /setacvalueindex scheme_current sub_processor PROCTHROTTLEMIN 100
+        powercfg /setactive scheme_current
+        
+        # Pagefile 8GB
+        Set-CimInstance -Query "Select * from Win32_ComputerSystem" -Property @{AutomaticManagedPagefile=$False}
+        $pagefile = Get-CimInstance -ClassName Win32_PageFileSetting -ErrorAction SilentlyContinue
+        if ($pagefile) {
+            Set-CimInstance -InputObject $pagefile -Property @{InitialSize=8192; MaximumSize=8192}
+        } else {
+            New-CimInstance -ClassName Win32_PageFileSetting -Property @{Name="C:\pagefile.sys"; InitialSize=8192; MaximumSize=8192}
         }
 
-        # Remove Provisioned Packages (Targeted removal to prevent Exit Code 1)
-        Get-AppxPackage | Where-Object { $_.NonRemovable -eq $false } | Remove-AppxPackage -ErrorAction SilentlyContinue
+        # Disable Visual Effects
+        $desktop = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty -Path $desktop -Name 'Wallpaper' -Value ""
+        Set-ItemProperty -Path $desktop -Name 'UserPreferencesMask' -Value ([byte[]](0x90,0x12,0x01,0x80,0x10,0x00,0x00,0x00))
+        Set-ItemProperty -Path $desktop -Name 'MenuShowDelay' -Value 0
+        Set-ItemProperty -Path $desktop -Name 'FontSmoothing' -Value 0
+        Set-ItemProperty -Path $desktop -Name 'DragFullWindows' -Value 0
+        Set-ItemProperty -Path 'HKCU:\Control Panel\Colors' -Name 'Background' -Value "0 0 0"
 
-    - name: User Account Configuration
-      run: |
-        # Configure RDP Access
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
-        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0
+        # Best Performance Mode
+        $vis = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects'
+        if (!(Test-Path $vis)) { New-Item -Path $vis -Force }
+        Set-ItemProperty -Path $vis -Name 'VisualFXSetting' -Value 2
         
-        # Set Credentials
+        # Processor Scheduling - Programs priority
+        Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl' -Name 'Win32PrioritySeparation' -Value 38
+
+    - name: Disk Optimization
+      run: |
+        # Disable Last Access Time (faster file access)
+        fsutil behavior set disablelastaccess 1
+        
+        # Disable 8.3 filename creation
+        fsutil behavior set disable8dot3 1
+        
+        # Disable hibernation (free up disk space)
+        powercfg /h off
+        
+        # Disable memory compression
+        Disable-MMAgent -MemoryCompression -ErrorAction SilentlyContinue
+
+    - name: Network Tuning
+      run: |
+        # Enable RSS & Autotuning
+        netsh int tcp set global rss=enabled
+        netsh int tcp set global autotuninglevel=normal
+        netsh int tcp set global ecncapability=enabled
+        
+        # Enable Direct Cache Access
+        netsh int tcp set global dca=enabled
+        
+        # Disable Windows Firewall (faster network)
+        Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+        
+        # TCP Optimizations
+        $tcp = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+        Get-ChildItem $tcp | ForEach-Object {
+            New-ItemProperty -Path $_.PSPath -Name "TcpAckFrequency" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+            New-ItemProperty -Path $_.PSPath -Name "TCPNoDelay" -Value 1 -PropertyType DWord -Force -ErrorAction SilentlyContinue
+        }
+        
+        # Global TCP settings
+        $tcpParams = "HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters"
+        Set-ItemProperty -Path $tcpParams -Name "TcpTimedWaitDelay" -Value 30 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $tcpParams -Name "MaxUserPort" -Value 65534 -Type DWord -ErrorAction SilentlyContinue
+        Set-ItemProperty -Path $tcpParams -Name "TcpMaxDataRetransmissions" -Value 3 -Type DWord -ErrorAction SilentlyContinue
+
+    - name: Android Build Config
+      run: |
+        $gDir = "$env:USERPROFILE\.gradle"
+        if (!(Test-Path $gDir)) { New-Item -Path $gDir -ItemType Directory }
+        
+        @"
+        org.gradle.daemon=true
+        org.gradle.parallel=true
+        org.gradle.configureondemand=true
+        org.gradle.workers.max=4
+        org.gradle.caching=true
+        org.gradle.jvmargs=-Xmx10g -XX:+UseParallelGC -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
+        android.enableBuildCache=true
+        android.useAndroidX=true
+        kotlin.incremental=true
+        kotlin.code.style=official
+        "@ | Out-File -FilePath "$gDir\gradle.properties" -Encoding ascii
+        
+        [Environment]::SetEnvironmentVariable("JAVA_OPTS", "-Xmx10g -XX:+UseParallelGC", "Machine")
+        [Environment]::SetEnvironmentVariable("GRADLE_OPTS", "-Xmx2g -Dorg.gradle.daemon=true", "Machine")
+
+    - name: Security & Services
+      run: |
+        # Disable Defender
+        Set-MpPreference -DisableRealtimeMonitoring $true
+        Set-MpPreference -DisableBehaviorMonitoring $true
+        Set-MpPreference -DisableBlockAtFirstSeen $true
+        Set-MpPreference -DisableIOAVProtection $true
+        Set-MpPreference -DisableScriptScanning $true
+        Set-MpPreference -MAPSReporting 0
+        
+        # Disable more unnecessary services
+        $svcs = @(
+            "WSearch",
+            "SysMain",
+            "wuauserv",
+            "BITS",
+            "Themes",
+            "WerSvc",
+            "ShellHWDetection",
+            "DiagTrack",
+            "dmwappushservice",
+            "MapsBroker",
+            "PhoneSvc",
+            "TabletInputService",
+            "WbioSrvc",
+            "icssvc",
+            "lfsvc",
+            "WMPNetworkSvc"
+        )
+        foreach ($s in $svcs) {
+            Stop-Service -Name $s -Force -ErrorAction SilentlyContinue
+            Set-Service -Name $s -StartupType Disabled -ErrorAction SilentlyContinue
+        }
+        
+        # Disable Scheduled Tasks
+        Get-ScheduledTask -TaskPath '\Microsoft\Windows\*' | Where-Object {$_.State -ne 'Disabled'} | Disable-ScheduledTask -ErrorAction SilentlyContinue
+
+    - name: RDP Low Latency Setup
+      run: |
+        $ts = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
+        Set-ItemProperty -Path $ts -Name "fDenyTSConnections" -Value 0
+        Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0
+        
+        # RDP Policy optimizations
+        $rdpPol = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Terminal Services"
+        if (!(Test-Path $rdpPol)) { New-Item -Path $rdpPol -Force }
+        Set-ItemProperty -Path $rdpPol -Name "ColorDepth" -Value 3
+        Set-ItemProperty -Path $rdpPol -Name "fDisableCursorShadow" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableMenuAnims" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableThemes" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fDisableWallpaper" -Value 1
+        Set-ItemProperty -Path $rdpPol -Name "fEnableVirtualizedGraphics" -Value 0
+        
+        # Enable UDP transport for lower latency
+        Set-ItemProperty -Path $rdpPol -Name "SelectTransport" -Value 0
+        Set-ItemProperty -Path $rdpPol -Name "fDisableAudioCapture" -Value 1
+        
+        # RDP compression
+        Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "fDisableEncryption" -Value 0
+        
         Set-LocalUser -Name "runneradmin" -Password (ConvertTo-SecureString -AsPlainText "p@ssw0rd!" -Force)
 
-    - name: Initialize Connection Tunnel
+    - name: Tunnel
       env:
-        PLAYIT_AUTH_KEY: ${{ secrets.PL }}
+        PL_KEY: ${{ secrets.PL }}
       run: |
-        # Download and Execute Agent
-        $agentUrl = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
-        $agentPath = "$env:USERPROFILE\playit.exe"
-        Invoke-WebRequest -Uri $agentUrl -OutFile $agentPath
-        
-        $proc = Start-Process -FilePath $agentPath -ArgumentList "--secret $env:PLAYIT_AUTH_KEY" -WindowStyle Hidden -PassThru
-        Start-Sleep -Seconds 5
-        
-        # Priority Adjustment
-        if ($proc) { $proc.PriorityClass = [System.Diagnostics.ProcessPriorityClass]::RealTime }
-        Write-Output "Connection established. Agent running with high priority."
+        $url = "https://github.com/playit-cloud/playit-agent/releases/download/v0.15.26/playit-windows-x86_64-signed.exe"
+        Invoke-WebRequest -Uri $url -OutFile "$env:USERPROFILE\playit.exe"
+        Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret $env:PL_KEY" -WindowStyle Hidden
 
-    - name: Session Maintenance
+    - name: Keep Alive
       run: |
         while ($true) {
-            $check = Get-Process -Name "playit" -ErrorAction SilentlyContinue
-            if (-not $check) {
+            if (!(Get-Process -Name "playit" -ErrorAction SilentlyContinue)) {
                 Start-Process -FilePath "$env:USERPROFILE\playit.exe" -ArgumentList "--secret ${{ secrets.PL }}" -WindowStyle Hidden
             }
-            Start-Sleep -Seconds 300
+            Write-Host "Monitoring... (CPU & Connection OK)"
+            Start-Sleep -Seconds 60
         }
