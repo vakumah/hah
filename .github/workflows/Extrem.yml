@@ -1,53 +1,48 @@
-name: macOS GUI Ultimate Force
+name: Windows Emulator Challenge
+
 on: workflow_dispatch
 
 jobs:
-  gui-access:
-    runs-on: macos-14 # Mendukung Apple Silicon M1/M2 yang lebih cepat
+  windows-test:
+    runs-on: windows-latest
     steps:
-      - name: Install Tools
-        run: brew install bore-cli
+      - uses: actions/checkout@v4
 
-      - name: Setup VNC Legacy (Bypass System User)
+      # 1. Cek Info Sistem & Virtualisasi
+      - name: Check System Info (Virtualization Support)
         run: |
-          # Aktifkan Remote Management
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate -configure -access -on -privs -all -restart -agent
+          echo "Checking System Info..."
+          systeminfo | findstr /C:"Virtualization Available In Firmware" /C:"Hyper-V Requirements"
           
-          # Set VNC Password secara mandiri (Tidak pakai password user runner)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -configure -clientopts -setvnclegacy -vnclegacy yes -setvncpw -vncpw Password123
+          echo "Checking CPU Flags (Intel VMX or AMD SVM)..."
+          # Kita pakai tool coreinfo (download dulu) untuk cek flag CPU
+          Invoke-WebRequest -Uri "https://download.sysinternals.com/files/Coreinfo.zip" -OutFile "Coreinfo.zip"
+          Expand-Archive Coreinfo.zip -DestinationPath .
+          ./Coreinfo64.exe -v
 
-      - name: Force Render Display
-        run: |
-          # Paksa resolusi agar WindowServer memiliki buffer gambar
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionEnabled -bool true
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionWidth -int 1280
-          sudo defaults write /Library/Preferences/com.apple.windowserver.plist DisplayResolutionHeight -int 800
-          
-          # Matikan semua mode hemat daya
-          sudo systemsetup -setdisplaysleep off > /dev/null 2>&1
-          sudo systemsetup -setsleep off > /dev/null 2>&1
-          
-          # TRICK: Kill loginwindow untuk memaksa refresh tampilan (Bisa memperbaiki layar hitam)
-          sudo killall loginwindow || true
+      # 2. Coba Setup Android SDK
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Start Tunnel
+      # 3. Coba Install HAXM (Intel Hardware Accelerator)
+      # Biasanya ini akan GAGAL di Windows Runner karena 'VT-x not enabled'
+      - name: Try Install HAXM / Hyper-V
+        continue-on-error: true  # Lanjut meskipun error (biar kita lihat lognya)
         run: |
-          bore local 5900 --to bore.pub &
-          sleep 10
+          echo "Trying to install HAXM..."
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "extras;intel;Hardware_Accelerated_Execution_Manager"
+          
+          echo "Check if HAXM installer exists..."
+          ls $ANDROID_HOME/extras/intel/Hardware_Accelerated_Execution_Manager/
 
-      - name: Auto Wake Script
-        run: |
-          echo "Koneksi: bore.pub:PORT"
-          echo "VNC Pass: Password123"
+      # 4. Coba Jalankan Emulator
+      - name: Run Emulator (Will Fail or be Slow)
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          target: default
+          arch: x86_64
+          # Kita coba paksa pakai host GPU
+          emulator-options: -no-window -gpu host -noaudio -no-boot-anim -accel on
+          script: echo "Emulator Started!"
           
-          # Menjalankan caffeinate agar sistem tidak 'tidur' di background
-          caffeinate -dim &
-          
-          # Loop untuk memaksa input keyboard agar layar tetap bangun
-          (while true; do
-            # Tekan tombol 'Shift' (key code 56) setiap 15 detik
-            osascript -e 'tell application "System Events" to key code 56'
-            sleep 15
-          done) &
-          
-          sleep 21600
