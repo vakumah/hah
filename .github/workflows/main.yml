@@ -108,7 +108,6 @@ jobs:
         org.gradle.workers.max=4
         org.gradle.caching=true
         org.gradle.jvmargs=-Xmx10g -XX:+UseParallelGC -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError -Dfile.encoding=UTF-8
-        android.enableBuildCache=true
         android.useAndroidX=true
         kotlin.incremental=true
         kotlin.code.style=official
