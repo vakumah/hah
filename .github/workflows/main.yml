@@ -1,11 +1,11 @@
-name: Windows RDP Optimization V7.4
+name: Windows Android Development 
 
 on:
   workflow_dispatch:
 
 jobs:
   setup:
-    runs-on: windows-2025
+    runs-on: windows-2025-vs2026
 
     steps:
     - uses: actions/checkout@v2
